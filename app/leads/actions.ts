@@ -1,0 +1,392 @@
+"use server";
+
+import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
+import { getSupabaseServer, getSupabaseServiceRole } from "@/lib/supabase/server";
+import { LOST_STAGES, type Stage, type Source, type TagCategoryId } from "@/lib/types";
+import { sendStageEmail, STAGE_EMAIL_MAP } from "@/lib/brevo";
+
+type LeadUpdate = Partial<{
+  stage: Stage;
+  owner_id: string | null;
+  value_estimate: number | null;
+  notes: string;
+  name: string;
+  email: string;
+  phone: string;
+  lost_reason: string | null;
+  source_manual: string | null;
+}>;
+
+export async function updateLead(id: string, patch: LeadUpdate) {
+  const supabase = await getSupabaseServer();
+
+  // Wenn Stage in eine Lost-Stage wandert: lost_reason ist Pflicht
+  if (patch.stage && LOST_STAGES.has(patch.stage) && !patch.lost_reason) {
+    return { ok: false, error: "lost_reason required for lost stages" };
+  }
+
+  // Vor Update: aktuellen Lead lesen (für Stage-from + Brevo-Daten)
+  const { data: before } = await supabase
+    .from("leads")
+    .select("stage, email, email_opt_out, first_name, last_name, name, org_id, calendly_setter_scheduled_at, calendly_erstgespraech_scheduled_at")
+    .eq("id", id)
+    .maybeSingle();
+
+  const { error } = await supabase.from("leads").update(patch).eq("id", id);
+  if (error) return { ok: false, error: error.message };
+
+  // Stage-Transition → Brevo Email feuern (best-effort, Fehler nicht propagieren)
+  if (before && patch.stage && patch.stage !== before.stage) {
+    const template = STAGE_EMAIL_MAP[patch.stage];
+    if (template && before.email) {
+      try {
+        const admin = getSupabaseServiceRole();
+        await sendStageEmail(admin as never, {
+          id,
+          org_id: before.org_id,
+          email: before.email,
+          email_opt_out: !!before.email_opt_out,
+          first_name: before.first_name,
+          last_name: before.last_name,
+          name: before.name,
+          calendly_setter_scheduled_at: before.calendly_setter_scheduled_at,
+          calendly_erstgespraech_scheduled_at: before.calendly_erstgespraech_scheduled_at,
+        }, template);
+      } catch (err) {
+        console.error("sendStageEmail failed", err);
+      }
+    }
+  }
+
+  revalidatePath("/");
+  revalidatePath("/board");
+  revalidatePath(`/leads/${id}`);
+  return { ok: true };
+}
+
+export async function addTagToLead(leadId: string, tagId: string) {
+  const supabase = await getSupabaseServer();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { ok: false, error: "not authenticated" };
+
+  const { data: lead } = await supabase
+    .from("leads")
+    .select("org_id")
+    .eq("id", leadId)
+    .single();
+  if (!lead) return { ok: false, error: "lead not found" };
+
+  const { error } = await supabase.from("lead_tags").insert({
+    lead_id: leadId,
+    tag_id: tagId,
+    org_id: lead.org_id,
+    created_by: user.id,
+  });
+  if (error && !/duplicate/i.test(error.message)) {
+    return { ok: false, error: error.message };
+  }
+
+  // Activity-Log
+  const { data: tag } = await supabase
+    .from("tags")
+    .select("label, category_id")
+    .eq("id", tagId)
+    .single();
+  if (tag) {
+    await supabase.from("activities").insert({
+      org_id: lead.org_id,
+      lead_id: leadId,
+      type: "lead_updated",
+      content: `Tag hinzugefügt: ${tag.label} (${tag.category_id})`,
+      meta: { action: "tag_added", tag_id: tagId, tag_label: tag.label },
+      created_by: user.id,
+    });
+  }
+
+  revalidatePath("/board");
+  revalidatePath("/list");
+  revalidatePath(`/leads/${leadId}`);
+  return { ok: true };
+}
+
+export async function removeTagFromLead(leadId: string, tagId: string) {
+  const supabase = await getSupabaseServer();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { ok: false, error: "not authenticated" };
+
+  const { data: tag } = await supabase
+    .from("tags")
+    .select("label, category_id, org_id")
+    .eq("id", tagId)
+    .single();
+
+  const { error } = await supabase
+    .from("lead_tags")
+    .delete()
+    .eq("lead_id", leadId)
+    .eq("tag_id", tagId);
+  if (error) return { ok: false, error: error.message };
+
+  if (tag) {
+    await supabase.from("activities").insert({
+      org_id: tag.org_id,
+      lead_id: leadId,
+      type: "lead_updated",
+      content: `Tag entfernt: ${tag.label}`,
+      meta: { action: "tag_removed", tag_id: tagId, tag_label: tag.label },
+      created_by: user.id,
+    });
+  }
+
+  revalidatePath("/board");
+  revalidatePath("/list");
+  revalidatePath(`/leads/${leadId}`);
+  return { ok: true };
+}
+
+export async function createTag(label: string, categoryId: TagCategoryId) {
+  const supabase = await getSupabaseServer();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { ok: false, error: "not authenticated" };
+
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("org_id")
+    .eq("id", user.id)
+    .single();
+  if (!profile) return { ok: false, error: "profile not found" };
+
+  const trimmed = label.trim();
+  if (!trimmed) return { ok: false, error: "label required" };
+
+  const { data, error } = await supabase
+    .from("tags")
+    .insert({ org_id: profile.org_id, category_id: categoryId, label: trimmed })
+    .select("id, label, category_id")
+    .single();
+
+  if (error) return { ok: false, error: error.message };
+
+  revalidatePath("/board");
+  return { ok: true, tag: data };
+}
+
+export async function claimLead(leadId: string, userId: string | null) {
+  const supabase = await getSupabaseServer();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { ok: false, error: "not authenticated" };
+
+  const { error } = await supabase
+    .from("leads")
+    .update({ owner_id: userId })
+    .eq("id", leadId);
+  if (error) return { ok: false, error: error.message };
+
+  const { data: lead } = await supabase
+    .from("leads")
+    .select("org_id")
+    .eq("id", leadId)
+    .single();
+
+  // Sync zu lead_assignments: bei null owner alle clearen, sonst den als single Assignment
+  if (lead) {
+    if (userId === null) {
+      await supabase.from("lead_assignments").delete().eq("lead_id", leadId);
+    } else {
+      // Alle bestehenden löschen + neuen Eintrag (= "exclusive claim" Verhalten via Board-Card)
+      await supabase.from("lead_assignments").delete().eq("lead_id", leadId);
+      await supabase.from("lead_assignments").insert({
+        lead_id: leadId,
+        user_id: userId,
+        org_id: lead.org_id,
+        assigned_by: user.id,
+      });
+    }
+
+    await supabase.from("activities").insert({
+      org_id: lead.org_id,
+      lead_id: leadId,
+      type: "lead_updated",
+      content: userId ? "Lead beansprucht" : "Lead freigegeben",
+      created_by: user.id,
+    });
+  }
+
+  revalidatePath("/board");
+  revalidatePath("/list");
+  revalidatePath(`/leads/${leadId}`);
+  return { ok: true };
+}
+
+export async function assignUser(leadId: string, userId: string) {
+  const supabase = await getSupabaseServer();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { ok: false, error: "not authenticated" };
+
+  const { data: lead } = await supabase
+    .from("leads")
+    .select("org_id, owner_id")
+    .eq("id", leadId)
+    .single();
+  if (!lead) return { ok: false, error: "lead not found" };
+
+  const { error } = await supabase.from("lead_assignments").insert({
+    lead_id: leadId,
+    user_id: userId,
+    org_id: lead.org_id,
+    assigned_by: user.id,
+  });
+  if (error && !/duplicate/i.test(error.message)) {
+    return { ok: false, error: error.message };
+  }
+
+  // Wenn noch kein primary owner → diesen User als primary setzen
+  if (!lead.owner_id) {
+    await supabase.from("leads").update({ owner_id: userId }).eq("id", leadId);
+  }
+
+  const { data: target } = await supabase
+    .from("profiles")
+    .select("display_name, email")
+    .eq("id", userId)
+    .single();
+  await supabase.from("activities").insert({
+    org_id: lead.org_id,
+    lead_id: leadId,
+    type: "lead_updated",
+    content: `User zugewiesen: ${target?.display_name || target?.email || userId}`,
+    created_by: user.id,
+  });
+
+  revalidatePath("/board");
+  revalidatePath(`/leads/${leadId}`);
+  return { ok: true };
+}
+
+export async function unassignUser(leadId: string, userId: string) {
+  const supabase = await getSupabaseServer();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { ok: false, error: "not authenticated" };
+
+  const { error } = await supabase
+    .from("lead_assignments")
+    .delete()
+    .eq("lead_id", leadId)
+    .eq("user_id", userId);
+  if (error) return { ok: false, error: error.message };
+
+  // Falls primary owner entfernt → fallback auf nächsten Assignment, sonst null
+  const { data: lead } = await supabase
+    .from("leads")
+    .select("org_id, owner_id")
+    .eq("id", leadId)
+    .single();
+  if (lead?.owner_id === userId) {
+    const { data: remaining } = await supabase
+      .from("lead_assignments")
+      .select("user_id")
+      .eq("lead_id", leadId)
+      .order("assigned_at", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    await supabase.from("leads")
+      .update({ owner_id: remaining?.user_id ?? null })
+      .eq("id", leadId);
+  }
+
+  if (lead) {
+    const { data: target } = await supabase
+      .from("profiles")
+      .select("display_name, email")
+      .eq("id", userId)
+      .single();
+    await supabase.from("activities").insert({
+      org_id: lead.org_id,
+      lead_id: leadId,
+      type: "lead_updated",
+      content: `User entfernt: ${target?.display_name || target?.email || userId}`,
+      created_by: user.id,
+    });
+  }
+
+  revalidatePath("/board");
+  revalidatePath(`/leads/${leadId}`);
+  return { ok: true };
+}
+
+export async function addNote(leadId: string, content: string) {
+  if (!content.trim()) return { ok: false, error: "empty note" };
+  const supabase = await getSupabaseServer();
+
+  const { data: { user } } = await supabase.auth.getUser();
+  const { data: lead } = await supabase
+    .from("leads")
+    .select("org_id")
+    .eq("id", leadId)
+    .single();
+  if (!lead) return { ok: false, error: "lead not found" };
+
+  const { error } = await supabase.from("activities").insert({
+    org_id: lead.org_id,
+    lead_id: leadId,
+    type: "note",
+    content: content.trim(),
+    created_by: user?.id ?? null,
+  });
+  if (error) return { ok: false, error: error.message };
+
+  revalidatePath(`/leads/${leadId}`);
+  return { ok: true };
+}
+
+export async function createLead(input: {
+  name: string;
+  email: string;
+  phone?: string;
+  source: Source;
+  source_manual?: string;
+  value_estimate?: number;
+  notes?: string;
+}) {
+  const supabase = await getSupabaseServer();
+
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { ok: false, error: "not authenticated" };
+
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("org_id")
+    .eq("id", user.id)
+    .single();
+  if (!profile) return { ok: false, error: "profile not found" };
+
+  const { data, error } = await supabase
+    .from("leads")
+    .insert({
+      org_id: profile.org_id,
+      name: input.name,
+      email: input.email,
+      phone: input.phone ?? null,
+      source: input.source,
+      source_manual: input.source_manual ?? null,
+      value_estimate: input.value_estimate ?? null,
+      notes: input.notes ?? null,
+      stage: "setter_call_booked",
+    })
+    .select("id")
+    .single();
+
+  if (error || !data) return { ok: false, error: error?.message ?? "insert failed" };
+
+  await supabase.from("activities").insert({
+    org_id: profile.org_id,
+    lead_id: data.id,
+    type: "lead_created",
+    content: "Lead manuell angelegt",
+    created_by: user.id,
+  });
+
+  revalidatePath("/");
+  redirect(`/leads/${data.id}`);
+}

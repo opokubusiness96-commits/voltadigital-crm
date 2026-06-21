@@ -1,0 +1,41 @@
+@import "tailwindcss";
+
+@theme {
+  /* Volta-Digital-Palette (wie Landing Page voltadigital.agency) */
+  --color-bg: #0B0B0D;
+  --color-surface: #141417;
+  --color-surface-2: #1A1A1F;
+  --color-border: #2A2A30;
+  --color-text: #F5F5F5;
+  --color-muted: #8E8E92;
+  --color-accent: #D4AF37;
+  --color-accent-2: #E5C76B;
+  --color-accent-fg: #0B0B0D;
+
+  --color-blue: #3b82f6;
+  --color-purple: #a855f7;
+  --color-green: #22c55e;
+  --color-red: #ef4444;
+  --color-amber: #f59e0b;
+
+  --font-display: "Montserrat", ui-sans-serif, system-ui, sans-serif;
+  --font-body: "Poppins", ui-sans-serif, system-ui, sans-serif;
+}
+
+html, body {
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-body);
+}
+
+h1, h2, h3, .font-display {
+  font-family: var(--font-display);
+}
+
+* {
+  border-color: var(--color-border);
+}
+
+input, select, textarea, button {
+  font: inherit;
+}
