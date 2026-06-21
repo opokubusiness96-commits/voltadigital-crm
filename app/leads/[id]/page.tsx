@@ -10,15 +10,16 @@ import { formatDate, timeAgo } from "@/lib/utils";
 import { type Activity, type Lead, type Profile } from "@/lib/types";
 
 type ActivityMeta = { icon: string; label: string; color: string };
-const ACTIVITY_META_DEFAULT: ActivityMeta = { icon: "•", label: "Update", color: "#8b94a7" };
+// Schlicht: Gold für positive Ereignisse, Grautöne sonst (kein Bunt).
+const ACTIVITY_META_DEFAULT: ActivityMeta = { icon: "•", label: "Update", color: "#8E8E92" };
 const ACTIVITY_META: Record<Activity["type"], ActivityMeta> = {
-  booking:           { icon: "📅", label: "Termin gebucht",   color: "#3b82f6" },
-  booking_canceled:  { icon: "✕",  label: "Termin abgesagt",  color: "#ef4444" },
-  stage_change:      { icon: "→",  label: "Stage gewechselt", color: "#c9a961" },
-  note:              { icon: "✎",  label: "Notiz",            color: "#a855f7" },
-  call_done:         { icon: "☎",  label: "Anruf erledigt",   color: "#22c55e" },
-  lead_created:      { icon: "✨", label: "Lead angelegt",    color: "#22c55e" },
-  lead_updated:      { icon: "✎",  label: "Lead bearbeitet",  color: "#8b94a7" },
+  booking:           { icon: "📅", label: "Termin gebucht",   color: "#D4AF37" },
+  booking_canceled:  { icon: "✕",  label: "Termin abgesagt",  color: "#8E8E92" },
+  stage_change:      { icon: "→",  label: "Stage gewechselt", color: "#E5C76B" },
+  note:              { icon: "✎",  label: "Notiz",            color: "#8E8E92" },
+  call_done:         { icon: "☎",  label: "Anruf erledigt",   color: "#D4AF37" },
+  lead_created:      { icon: "✨", label: "Lead angelegt",    color: "#D4AF37" },
+  lead_updated:      { icon: "✎",  label: "Lead bearbeitet",  color: "#8E8E92" },
 };
 
 export default async function LeadDetail({

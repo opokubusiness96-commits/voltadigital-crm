@@ -1,99 +1,77 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import {
   Users,
-  GitBranch,
+  Repeat,
   CheckSquare,
-  TrendingUp,
+  AlertTriangle,
   ArrowUpRight,
   Plus,
-  Briefcase,
-  Circle,
+  StickyNote,
+  CalendarDays,
+  Receipt,
+  BarChart3,
 } from "lucide-react";
+import { getSupabaseServer } from "@/lib/supabase/server";
+import { isEmailAuthorized } from "@/lib/auth";
+import { Card, PriorityBadge, InvoiceStatusBadge } from "@/components/cockpit/ui";
+import { formatEUR } from "@/lib/utils";
+import {
+  CLIENTS,
+  TASKS,
+  NOTES,
+  INVOICES,
+  CAL_EVENTS,
+  AD_PERFORMANCE,
+  PIPELINE_BY_CLIENT,
+  FUNNEL_LABELS,
+  FUNNEL_TONE,
+  TODAY,
+  financeSummary,
+  taskBucket,
+  clientName,
+  fmtDate,
+} from "@/lib/mock/agency";
 
-/*
-  Volta-Digital-Plattform-Dashboard (FRONTEND, Mock-Daten).
-  Gesamtüberblick: Kunden-Pipelines als Kachel-/Gitter-Ansicht (anklickbar),
-  plus Projekte und Aufgaben. Design wie die Landing Page (dunkel + Gold).
-  Echte Daten + Auth folgen mit dem Supabase-Backend; aktuell statische Mocks.
-*/
+export const dynamic = "force-dynamic";
 
-// --- Mock-Daten (werden später aus Supabase pro Organisation geladen) ---
-const STATS = [
-  { label: "Kunden", value: "3", icon: Users, sub: "aktive Accounts" },
-  { label: "Pipelines", value: "3", icon: GitBranch, sub: "in Bearbeitung" },
-  { label: "Offene Aufgaben", value: "7", icon: CheckSquare, sub: "diese Woche" },
-  { label: "Leads (7 Tage)", value: "24", icon: TrendingUp, sub: "+18% ggü. Vorwoche" },
-];
+export default async function DashboardPage() {
+  const supabase = await getSupabaseServer();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) redirect("/login");
+  if (!isEmailAuthorized(user.email)) redirect("/login");
+  const email = user.email ?? "";
 
-type Pipeline = {
-  slug: string;
-  name: string;
-  type: string;
-  leads: number;
-  hot: number;
-  stages: { label: string; count: number; tone: string }[];
-};
+  const fin = financeSummary();
+  const openTasks = TASKS.filter((t) => !t.done);
+  const todayOverdue = openTasks
+    .filter((t) => taskBucket(t.due) === "ueberfaellig" || taskBucket(t.due) === "heute")
+    .sort((a, b) => (a.due < b.due ? -1 : 1));
+  const upcoming = CAL_EVENTS.filter((e) => e.date >= TODAY).sort(
+    (a, b) => a.date.localeCompare(b.date) || (a.time ?? "99").localeCompare(b.time ?? "99"),
+  );
+  const openInvoices = INVOICES.filter((i) => i.status !== "bezahlt").sort((a, b) =>
+    a.status === "ueberfaellig" ? -1 : b.status === "ueberfaellig" ? 1 : 0,
+  );
+  const pinnedNotes = NOTES.filter((n) => n.pinned);
+  const maxSpend = Math.max(...AD_PERFORMANCE.map((a) => a.spend));
 
-const PIPELINES: Pipeline[] = [
-  {
-    slug: "jerome",
-    name: "Jerome Deres Coaching",
-    type: "Coaching",
-    leads: 42,
-    hot: 6,
-    stages: [
-      { label: "Neu", count: 14, tone: "var(--color-blue)" },
-      { label: "Call", count: 11, tone: "var(--color-purple)" },
-      { label: "Angebot", count: 9, tone: "var(--color-amber)" },
-      { label: "Kunde", count: 8, tone: "var(--color-green)" },
-    ],
-  },
-  {
-    slug: "heidi",
-    name: "Heidi — The Salon",
-    type: "Beauty / Salon",
-    leads: 27,
-    hot: 4,
-    stages: [
-      { label: "Neu", count: 10, tone: "var(--color-blue)" },
-      { label: "Termin", count: 8, tone: "var(--color-purple)" },
-      { label: "Angebot", count: 5, tone: "var(--color-amber)" },
-      { label: "Kunde", count: 4, tone: "var(--color-green)" },
-    ],
-  },
-  {
-    slug: "volta",
-    name: "Volta Digital — Inbound",
-    type: "Agentur",
-    leads: 18,
-    hot: 3,
-    stages: [
-      { label: "Neu", count: 7, tone: "var(--color-blue)" },
-      { label: "Call", count: 5, tone: "var(--color-purple)" },
-      { label: "Angebot", count: 4, tone: "var(--color-amber)" },
-      { label: "Kunde", count: 2, tone: "var(--color-green)" },
-    ],
-  },
-];
+  const KPIS = [
+    { label: "Kunden", value: String(CLIENTS.filter((c) => c.status !== "pausiert").length), sub: "aktive Accounts", Icon: Users },
+    { label: "MRR", value: formatEUR(fin.mrr), sub: "wiederkehrend / Monat", Icon: Repeat },
+    { label: "Offene Aufgaben", value: String(openTasks.length), sub: `${todayOverdue.length} heute / überfällig`, Icon: CheckSquare },
+    { label: "Überfällig", value: formatEUR(fin.ueberfaellig), sub: "offene Rechnungen", Icon: AlertTriangle, accent: true },
+  ];
 
-const PROJECTS = [
-  { name: "Jerome — Funnel Relaunch", client: "Jerome Coaching", status: "Aktiv", progress: 70 },
-  { name: "Heidi — Meta Ads Setup", client: "Heidi Salon", status: "Aktiv", progress: 40 },
-  { name: "Volta — CRM Rollout", client: "Intern", status: "In Arbeit", progress: 25 },
-];
+  const QUICK = [
+    { label: "Aufgabe", href: "/aufgaben" },
+    { label: "Notiz", href: "/dashboard" },
+    { label: "Rechnung", href: "/rechnungen" },
+    { label: "Lead", href: "/leads/new" },
+  ];
 
-const TASKS = [
-  { title: "Angebot an Heidi nachfassen", due: "Heute", client: "Heidi Salon", urgent: true },
-  { title: "Jerome: 6 Hot Leads anrufen", due: "Heute", client: "Jerome", urgent: true },
-  { title: "Ad-Creatives Volta freigeben", due: "Morgen", client: "Intern", urgent: false },
-  { title: "Reporting Woche 25 erstellen", due: "Fr", client: "Alle", urgent: false },
-];
-
-function card(extra = "") {
-  return `rounded-xl border border-[color:var(--color-border)] bg-[color:var(--color-surface)] ${extra}`;
-}
-
-export default function DashboardPage() {
   return (
     <div className="min-h-screen">
       {/* Topbar */}
@@ -103,155 +81,254 @@ export default function DashboardPage() {
             <Link href="/dashboard" className="font-display text-lg font-bold tracking-tight">
               VoltaDigital<span className="text-[color:var(--color-accent)]">CRM</span>
             </Link>
-            <nav className="hidden sm:flex items-center gap-5 text-sm">
+            <nav className="hidden md:flex items-center gap-5 text-sm">
               <span className="text-[color:var(--color-text)]">Übersicht</span>
-              <Link href="/board" className="text-[color:var(--color-muted)] hover:text-[color:var(--color-text)]">Pipelines</Link>
-              <Link href="/dashboard" className="text-[color:var(--color-muted)] hover:text-[color:var(--color-text)]">Kunden</Link>
-              <Link href="/dashboard" className="text-[color:var(--color-muted)] hover:text-[color:var(--color-text)]">Aufgaben</Link>
+              <Link href="/board" className="text-[color:var(--color-muted)] hover:text-[color:var(--color-text)]">Pipeline</Link>
+              <Link href="/aufgaben" className="text-[color:var(--color-muted)] hover:text-[color:var(--color-text)]">Aufgaben</Link>
+              <Link href="/kalender" className="text-[color:var(--color-muted)] hover:text-[color:var(--color-text)]">Kalender</Link>
+              <Link href="/rechnungen" className="text-[color:var(--color-muted)] hover:text-[color:var(--color-text)]">Rechnungen</Link>
             </nav>
           </div>
           <div className="flex items-center gap-4 text-sm">
-            <span className="text-[color:var(--color-muted)] hidden sm:inline">hallo@voltadigital.agency</span>
+            <span className="text-[color:var(--color-muted)] hidden sm:inline">{email}</span>
+            <form action="/api/auth/signout" method="post">
+              <button className="text-[color:var(--color-muted)] hover:text-[color:var(--color-text)]">Logout</button>
+            </form>
             <div className="w-8 h-8 rounded-full bg-[color:var(--color-accent)] text-[color:var(--color-accent-fg)] grid place-items-center font-semibold">D</div>
           </div>
         </div>
       </header>
 
       <main className="mx-auto max-w-[1500px] px-6 py-8">
-        {/* Begrüßung */}
-        <div className="mb-8">
-          <p className="text-xs uppercase tracking-[0.18em] text-[color:var(--color-accent)] mb-2">Volta Digital · Übersicht</p>
-          <h1 className="text-3xl font-bold tracking-tight">Willkommen zurück, David</h1>
-          <p className="text-[color:var(--color-muted)] mt-1">Alle Kunden, Pipelines und Aufgaben auf einen Blick.</p>
+        {/* Begrüßung + Quick-Actions */}
+        <div className="mb-8 flex items-end justify-between gap-4 flex-wrap">
+          <div>
+            <p className="text-xs uppercase tracking-[0.18em] text-[color:var(--color-accent)] mb-2">Volta Digital · Übersicht</p>
+            <h1 className="text-3xl font-bold tracking-tight">Willkommen zurück, David</h1>
+            <p className="text-[color:var(--color-muted)] mt-1">Wähle einen Kunden für sein Dashboard — oder dein Tagesüberblick darunter.</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {QUICK.map((q) => (
+              <Link
+                key={q.label}
+                href={q.href}
+                className="inline-flex items-center gap-1.5 rounded-md border border-[color:var(--color-border)] px-3 py-2 text-sm text-[color:var(--color-muted)] hover:border-[color:var(--color-accent)] hover:text-[color:var(--color-text)] transition"
+              >
+                <Plus className="w-3.5 h-3.5" /> {q.label}
+              </Link>
+            ))}
+          </div>
         </div>
 
-        {/* Stat-Kacheln */}
+        {/* KPI-Kacheln */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-10">
-          {STATS.map((s) => {
-            const Icon = s.icon;
-            return (
-              <div key={s.label} className={card("p-5")}>
-                <div className="flex items-center justify-between mb-3">
-                  <span className="text-sm text-[color:var(--color-muted)]">{s.label}</span>
-                  <Icon className="w-4 h-4 text-[color:var(--color-accent)]" />
-                </div>
-                <div className="text-3xl font-bold font-display">{s.value}</div>
-                <div className="text-xs text-[color:var(--color-muted)] mt-1">{s.sub}</div>
+          {KPIS.map((k) => (
+            <Card key={k.label} className="p-5">
+              <div className="flex items-center justify-between mb-3">
+                <span className="text-sm text-[color:var(--color-muted)]">{k.label}</span>
+                <k.Icon className="w-4 h-4 text-[color:var(--color-accent)]" />
               </div>
-            );
-          })}
+              <div className={`text-3xl font-bold font-display ${k.accent ? "text-[color:var(--color-accent)]" : ""}`}>{k.value}</div>
+              <div className="text-xs text-[color:var(--color-muted)] mt-1">{k.sub}</div>
+            </Card>
+          ))}
         </div>
 
-        {/* Pipelines — Kachel-/Gitter-Ansicht */}
+        {/* Kunden — Kachel-Ansicht, Klick → eigenes Kunden-Dashboard */}
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-xl font-semibold tracking-tight">Pipelines</h2>
-          <Link href="/board" className="text-sm text-[color:var(--color-accent)] hover:text-[color:var(--color-accent-2)] flex items-center gap-1">
-            Alle ansehen <ArrowUpRight className="w-4 h-4" />
-          </Link>
+          <h2 className="text-xl font-semibold tracking-tight">Kunden</h2>
+          <span className="text-xs text-[color:var(--color-muted)]">Klick öffnet das Kunden-Dashboard</span>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 mb-10">
-          {PIPELINES.map((p) => {
-            const total = p.stages.reduce((a, s) => a + s.count, 0) || 1;
+          {CLIENTS.map((c) => {
+            const pipe = PIPELINE_BY_CLIENT[c.slug] ?? { leads: 0, hot: 0, stages: [0, 0, 0, 0] };
+            const total = pipe.stages.reduce((a, s) => a + s, 0) || 1;
+            const open = openTasks.filter((t) => t.client === c.slug).length;
             return (
               <Link
-                key={p.slug}
-                href="/board"
-                className={card("p-5 block transition hover:border-[color:var(--color-accent)] group")}
+                key={c.slug}
+                href={`/kunde/${c.slug}`}
+                className="rounded-xl border border-[color:var(--color-border)] bg-[color:var(--color-surface)] p-5 block transition hover:border-[color:var(--color-accent)] group"
               >
                 <div className="flex items-start justify-between">
                   <div>
-                    <div className="text-lg font-semibold group-hover:text-[color:var(--color-accent)] transition">{p.name}</div>
-                    <div className="text-xs text-[color:var(--color-muted)] mt-0.5">{p.type}</div>
+                    <div className="text-lg font-semibold group-hover:text-[color:var(--color-accent)] transition">{c.name}</div>
+                    <div className="text-xs text-[color:var(--color-muted)] mt-0.5">{c.type}</div>
                   </div>
-                  <ArrowUpRight className="w-5 h-5 text-[color:var(--color-muted)] group-hover:text-[color:var(--color-accent)] transition" />
+                  <StatusPill status={c.status} />
                 </div>
 
-                <div className="flex items-end gap-6 mt-5">
+                <div className="flex items-end gap-6 mt-4">
                   <div>
-                    <div className="text-2xl font-bold font-display">{p.leads}</div>
-                    <div className="text-xs text-[color:var(--color-muted)]">Leads gesamt</div>
+                    <div className="text-2xl font-bold font-display">{pipe.leads}</div>
+                    <div className="text-xs text-[color:var(--color-muted)]">Leads</div>
                   </div>
                   <div>
-                    <div className="text-2xl font-bold font-display text-[color:var(--color-accent)]">{p.hot}</div>
-                    <div className="text-xs text-[color:var(--color-muted)]">Hot Leads</div>
+                    <div className="text-2xl font-bold font-display text-[color:var(--color-accent)]">{pipe.hot}</div>
+                    <div className="text-xs text-[color:var(--color-muted)]">Hot</div>
+                  </div>
+                  <ArrowUpRight className="w-5 h-5 ml-auto text-[color:var(--color-muted)] group-hover:text-[color:var(--color-accent)] transition" />
+                </div>
+
+                {/* Mini-Funnel */}
+                <div className="mt-4">
+                  <div className="flex h-1.5 w-full overflow-hidden rounded-full bg-[color:var(--color-surface-2)]">
+                    {pipe.stages.map((count, i) => (
+                      <div key={i} style={{ width: `${(count / total) * 100}%`, background: FUNNEL_TONE[i] }} />
+                    ))}
                   </div>
                 </div>
 
-                {/* Stage-Balken */}
-                <div className="mt-5">
-                  <div className="flex h-2 w-full overflow-hidden rounded-full bg-[color:var(--color-surface-2)]">
-                    {p.stages.map((st) => (
-                      <div key={st.label} style={{ width: `${(st.count / total) * 100}%`, background: st.tone }} />
-                    ))}
-                  </div>
-                  <div className="flex flex-wrap gap-x-4 gap-y-1 mt-3">
-                    {p.stages.map((st) => (
-                      <span key={st.label} className="text-xs text-[color:var(--color-muted)] flex items-center gap-1.5">
-                        <span className="inline-block w-2 h-2 rounded-full" style={{ background: st.tone }} />
-                        {st.label} <span className="text-[color:var(--color-text)]">{st.count}</span>
-                      </span>
-                    ))}
-                  </div>
+                {/* Fußzeile: MRR · Aufgaben · Termin */}
+                <div className="grid grid-cols-3 gap-3 mt-4">
+                  <Foot label="MRR" value={c.mrr ? formatEUR(c.mrr) : "—"} />
+                  <Foot label="Aufgaben" value={String(open)} />
+                  <Foot label="Termin" value={c.nextMeeting ? fmtDate(c.nextMeeting) : "—"} />
                 </div>
               </Link>
             );
           })}
-
-          {/* Kunde hinzufügen */}
-          <Link
-            href="/dashboard"
-            className="rounded-xl border border-dashed border-[color:var(--color-border)] grid place-items-center p-5 min-h-[180px] text-[color:var(--color-muted)] hover:border-[color:var(--color-accent)] hover:text-[color:var(--color-accent)] transition"
-          >
-            <span className="flex flex-col items-center gap-2">
-              <Plus className="w-6 h-6" />
-              <span className="text-sm">Kunde / Pipeline hinzufügen</span>
-            </span>
-          </Link>
         </div>
 
-        {/* Projekte + Aufgaben */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <div className={card("p-5")}>
-            <div className="flex items-center gap-2 mb-4">
-              <Briefcase className="w-4 h-4 text-[color:var(--color-accent)]" />
-              <h2 className="text-lg font-semibold tracking-tight">Projekte</h2>
-            </div>
-            <div className="flex flex-col gap-4">
-              {PROJECTS.map((pr) => (
-                <div key={pr.name}>
-                  <div className="flex items-center justify-between">
-                    <div className="text-sm font-medium">{pr.name}</div>
-                    <span className="text-xs text-[color:var(--color-muted)]">{pr.status}</span>
-                  </div>
-                  <div className="text-xs text-[color:var(--color-muted)] mb-1.5">{pr.client}</div>
-                  <div className="h-1.5 w-full rounded-full bg-[color:var(--color-surface-2)] overflow-hidden">
-                    <div className="h-full bg-[color:var(--color-accent)]" style={{ width: `${pr.progress}%` }} />
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className={card("p-5")}>
-            <div className="flex items-center gap-2 mb-4">
-              <CheckSquare className="w-4 h-4 text-[color:var(--color-accent)]" />
-              <h2 className="text-lg font-semibold tracking-tight">Aufgaben</h2>
-            </div>
-            <div className="flex flex-col divide-y divide-[color:var(--color-border)]">
-              {TASKS.map((tk) => (
-                <div key={tk.title} className="flex items-center gap-3 py-2.5 first:pt-0">
-                  <Circle className={`w-4 h-4 shrink-0 ${tk.urgent ? "text-[color:var(--color-accent)]" : "text-[color:var(--color-muted)]"}`} />
+        {/* Dein Tagesüberblick (über alle Kunden) */}
+        <h2 className="text-xl font-semibold tracking-tight mb-4">Dein Tag</h2>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-8">
+          {/* Aufgaben */}
+          <Card className="p-5">
+            <WidgetHead Icon={CheckSquare} title="Aufgaben heute & überfällig" href="/aufgaben" />
+            <div className="mt-3 divide-y divide-[color:var(--color-border)]">
+              {todayOverdue.map((t) => (
+                <div key={t.id} className="flex items-center gap-3 py-2.5 first:pt-0">
+                  <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: taskBucket(t.due) === "ueberfaellig" ? "var(--color-accent)" : "#C7C7CC" }} />
                   <div className="flex-1 min-w-0">
-                    <div className="text-sm truncate">{tk.title}</div>
-                    <div className="text-xs text-[color:var(--color-muted)]">{tk.client}</div>
+                    <div className="text-sm truncate">{t.title}</div>
+                    <div className="text-xs text-[color:var(--color-muted)]">{clientName(t.client)}</div>
                   </div>
-                  <span className={`text-xs ${tk.urgent ? "text-[color:var(--color-accent)]" : "text-[color:var(--color-muted)]"}`}>{tk.due}</span>
+                  <PriorityBadge priority={t.priority} />
+                  <span className="text-xs text-[color:var(--color-muted)] tabular-nums shrink-0 w-12 text-right">{fmtDate(t.due)}</span>
                 </div>
               ))}
             </div>
-          </div>
+          </Card>
+
+          {/* Kalender */}
+          <Card className="p-5">
+            <WidgetHead Icon={CalendarDays} title="Anstehende Termine" href="/kalender" />
+            <div className="mt-3 divide-y divide-[color:var(--color-border)]">
+              {upcoming.slice(0, 5).map((e) => (
+                <div key={e.id} className="flex items-center gap-3 py-2.5 first:pt-0">
+                  <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: e.type === "deadline" ? "transparent" : "var(--color-accent)", border: e.type === "deadline" ? "1px solid var(--color-muted)" : "none" }} />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm truncate">{e.title}</div>
+                    {e.client && <div className="text-xs text-[color:var(--color-muted)]">{clientName(e.client)}</div>}
+                  </div>
+                  <span className="text-xs text-[color:var(--color-muted)] tabular-nums shrink-0">
+                    {fmtDate(e.date)}{e.time ? ` · ${e.time}` : ""}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </Card>
+
+          {/* Rechnungen / Finanzen */}
+          <Card className="p-5">
+            <WidgetHead Icon={Receipt} title="Rechnungen & Finanzen" href="/rechnungen" />
+            <div className="mt-3 grid grid-cols-3 gap-2 mb-3">
+              <Foot label="Offen" value={formatEUR(fin.offen)} />
+              <Foot label="Überfällig" value={formatEUR(fin.ueberfaellig)} accent />
+              <Foot label="Bezahlt" value={formatEUR(fin.bezahltMonat)} />
+            </div>
+            <div className="divide-y divide-[color:var(--color-border)]">
+              {openInvoices.slice(0, 4).map((inv) => (
+                <div key={inv.id} className="flex items-center gap-3 py-2 text-sm">
+                  <span className="text-[color:var(--color-muted)] tabular-nums w-16 shrink-0">{inv.number}</span>
+                  <span className="flex-1 min-w-0 truncate">{clientName(inv.client)}</span>
+                  <InvoiceStatusBadge status={inv.status} />
+                  <span className="tabular-nums w-20 text-right shrink-0">{formatEUR(inv.amount)}</span>
+                </div>
+              ))}
+            </div>
+          </Card>
+
+          {/* Notizen */}
+          <Card className="p-5">
+            <WidgetHead Icon={StickyNote} title="Notizen" href="/dashboard" />
+            <div className="mt-3 space-y-2">
+              {pinnedNotes.map((n) => (
+                <div key={n.id} className="rounded-md border border-[color:var(--color-border)] bg-[color:var(--color-surface-2)] px-3 py-2">
+                  <div className="text-sm leading-snug">{n.body}</div>
+                  {n.client && <div className="text-[10px] text-[color:var(--color-muted)] mt-1">{clientName(n.client)}</div>}
+                </div>
+              ))}
+            </div>
+          </Card>
         </div>
+
+        {/* Ad-Performance / Reporting */}
+        <Card className="p-5">
+          <WidgetHead Icon={BarChart3} title="Ad-Performance (30 Tage)" />
+          <div className="mt-4 space-y-3">
+            {AD_PERFORMANCE.map((a, i) => (
+              <div key={i} className="grid grid-cols-[1fr_2fr_auto] items-center gap-4">
+                <div className="min-w-0">
+                  <div className="text-sm truncate">{clientName(a.client)}</div>
+                  <div className="text-[10px] text-[color:var(--color-muted)]">{a.channel}</div>
+                </div>
+                <div>
+                  <div className="h-2 w-full rounded-full bg-[color:var(--color-surface-2)] overflow-hidden">
+                    <div className="h-full rounded-full bg-[color:var(--color-accent)]" style={{ width: `${(a.spend / maxSpend) * 100}%` }} />
+                  </div>
+                  <div className="text-[10px] text-[color:var(--color-muted)] mt-1">
+                    {formatEUR(a.spend)} Spend · {a.leads} Leads · CPL {formatEUR(a.cpl)}
+                  </div>
+                </div>
+                <div className="text-right">
+                  <div className="text-lg font-bold font-display text-[color:var(--color-accent)]">{a.roas.toFixed(1)}×</div>
+                  <div className="text-[10px] text-[color:var(--color-muted)]">ROAS</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </Card>
       </main>
     </div>
+  );
+}
+
+function WidgetHead({ Icon, title, href }: { Icon: React.ComponentType<{ className?: string }>; title: string; href?: string }) {
+  return (
+    <div className="flex items-center justify-between">
+      <div className="flex items-center gap-2">
+        <Icon className="w-4 h-4 text-[color:var(--color-accent)]" />
+        <h2 className="text-base font-semibold tracking-tight">{title}</h2>
+      </div>
+      {href && (
+        <Link href={href} className="text-xs text-[color:var(--color-accent)] hover:text-[color:var(--color-accent-2)] flex items-center gap-1">
+          Alle <ArrowUpRight className="w-3.5 h-3.5" />
+        </Link>
+      )}
+    </div>
+  );
+}
+
+function Foot({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
+  return (
+    <div className="rounded-md bg-[color:var(--color-surface-2)] px-3 py-2">
+      <div className="text-[10px] uppercase tracking-wider text-[color:var(--color-muted)]">{label}</div>
+      <div className={`text-sm font-semibold tabular-nums ${accent ? "text-[color:var(--color-accent)]" : ""}`}>{value}</div>
+    </div>
+  );
+}
+
+const STATUS_PILL: Record<string, string> = {
+  aktiv: "text-[color:var(--color-accent)] border-[color:var(--color-accent)]/35",
+  onboarding: "text-[color:var(--color-text)] border-white/20",
+  pausiert: "text-[color:var(--color-muted)] border-white/10",
+};
+function StatusPill({ status }: { status: string }) {
+  return (
+    <span className={`text-[10px] uppercase tracking-wide rounded-full border px-2 py-0.5 ${STATUS_PILL[status] ?? ""}`}>
+      {status}
+    </span>
   );
 }

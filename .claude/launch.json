@@ -1,6 +1,6 @@
 {
   "version": "0.0.1",
   "configurations": [
-    { "name": "voltacrm", "runtimeExecutable": "npm", "runtimeArgs": ["run", "dev"], "port": 3010 }
+    { "name": "voltacrm", "runtimeExecutable": "/Users/davidopokuware/.nvm/versions/node/v20.20.1/bin/node", "runtimeArgs": ["node_modules/next/dist/bin/next", "dev"], "port": 3010 }
   ]
 }

@@ -12,11 +12,13 @@
   --color-accent-2: #E5C76B;
   --color-accent-fg: #0B0B0D;
 
-  --color-blue: #3b82f6;
-  --color-purple: #a855f7;
-  --color-green: #22c55e;
-  --color-red: #ef4444;
-  --color-amber: #f59e0b;
+  /* Schlichte Palette: nur Gold / Weiß / Schwarz / Grau.
+     Frühere Bunt-Tokens zeigen jetzt auf Graustufen bzw. Gold (positiv). */
+  --color-blue: #6B7280;   /* war Blau   → Grau */
+  --color-purple: #8A8A92; /* war Lila   → helleres Grau */
+  --color-green: #D4AF37;  /* war Grün   → Gold (positiv/gewonnen) */
+  --color-amber: #B9952E;  /* war Orange → gedämpftes Gold */
+  --color-red: #A89A80;    /* war Rot    → warmes Grau (Warnung, kein Rot) */
 
   --font-display: "Montserrat", ui-sans-serif, system-ui, sans-serif;
   --font-body: "Poppins", ui-sans-serif, system-ui, sans-serif;

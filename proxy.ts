@@ -1,12 +1,28 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
 
-// "/dashboard" ist temporär öffentlich für die Frontend-Vorschau (Mock-Daten).
-// VOR dem Launch / sobald Auth steht wieder entfernen.
-const PUBLIC_PATHS = ["/login", "/auth/callback", "/dashboard"];
+// Öffentliche Pfade ohne Auth. Das Dashboard ist jetzt hinter dem Login (eigener
+// getUser-Check), daher NICHT mehr hier.
+const PUBLIC_PATHS = ["/login", "/auth/callback"];
 
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
+
+  // DEV-ONLY: lokalen Login-Flow simulieren ohne echtes Backend.
+  // "Eingeloggt" = Cookie dev_fake_auth=1 (gesetzt von der Login-Seite).
+  // Die geschützten Seiten prüfen den User selbst (über den Fake-Client) und
+  // leiten ausgeloggt auf /login. Hier nur die Umkehrung: eingeloggt + auf /login
+  // → weiter zum Dashboard. Doppelt abgesichert: nur DEV_FAKE_AUTH + NICHT Production.
+  if (
+    process.env.NEXT_PUBLIC_DEV_FAKE_AUTH === "true" &&
+    process.env.NODE_ENV !== "production"
+  ) {
+    const loggedIn = request.cookies.get("dev_fake_auth")?.value === "1";
+    if (loggedIn && pathname === "/login") {
+      return NextResponse.redirect(new URL("/dashboard", request.url));
+    }
+    return NextResponse.next();
+  }
 
   // Webhooks, Auth-Endpoints und statische Assets: kein Auth-Check
   if (

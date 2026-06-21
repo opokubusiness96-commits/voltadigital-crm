@@ -20,6 +20,18 @@ export function LoginForm() {
     setLoading(true);
     setError(null);
 
+    // DEV-ONLY: Fake-Login ohne echtes Backend. Setzt die Session-Cookie und geht
+    // direkt zum Dashboard. Doppelt abgesichert (Flag + nicht Production).
+    if (
+      process.env.NEXT_PUBLIC_DEV_FAKE_AUTH === "true" &&
+      process.env.NODE_ENV !== "production"
+    ) {
+      document.cookie = "dev_fake_auth=1; path=/; max-age=86400; samesite=lax";
+      router.replace("/dashboard");
+      router.refresh();
+      return;
+    }
+
     try {
       // Whitelist serverseitig prüfen, bevor Supabase überhaupt angesprochen wird
       const allowed = await fetch("/api/auth/check", {

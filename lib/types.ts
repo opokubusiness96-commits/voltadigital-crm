@@ -23,14 +23,16 @@ export const STAGE_LABEL: Record<Stage, string> = {
 };
 
 // Tailwind-Klassen-Mapping für Badges
+// Schlichtes Monochrom-Mapping: aktive Stages neutral (weiß/grau),
+// No-Show/Lost gedämpft, "Won" als einziges mit Gold-Akzent.
 export const STAGE_BADGE: Record<Stage, string> = {
-  setter_call_booked:           "bg-blue-500/15 text-blue-300 border-blue-500/30",
-  setter_no_show:               "bg-amber-500/15 text-amber-300 border-amber-500/30",
-  setter_lost:                  "bg-red-500/15 text-red-300 border-red-500/30",
-  klarheitsgespraech_booked:    "bg-blue-500/15 text-blue-300 border-blue-500/30",
-  klarheitsgespraech_no_show:   "bg-amber-500/15 text-amber-300 border-amber-500/30",
-  klarheitsgespraech_lost:      "bg-red-500/15 text-red-300 border-red-500/30",
-  won:                          "bg-green-500/20 text-green-300 border-green-500/40",
+  setter_call_booked:           "bg-white/[0.06] text-[color:var(--color-text)] border-white/15",
+  setter_no_show:               "bg-white/[0.03] text-[color:var(--color-muted)] border-white/10",
+  setter_lost:                  "bg-transparent text-[color:var(--color-muted)] border-white/10",
+  klarheitsgespraech_booked:    "bg-white/[0.06] text-[color:var(--color-text)] border-white/15",
+  klarheitsgespraech_no_show:   "bg-white/[0.03] text-[color:var(--color-muted)] border-white/10",
+  klarheitsgespraech_lost:      "bg-transparent text-[color:var(--color-muted)] border-white/10",
+  won:                          "bg-[color:var(--color-accent)]/15 text-[color:var(--color-accent)] border-[color:var(--color-accent)]/40",
 };
 
 export const LOST_STAGES: ReadonlySet<Stage> = new Set(["setter_lost", "klarheitsgespraech_lost"]);
@@ -134,12 +136,13 @@ export const TAG_CATEGORY_LABEL: Record<TagCategoryId, string> = {
   archive: "Archiv",
 };
 
+// Schlicht: Gold-Abstufungen + Grau statt bunter Kategorie-Farben.
 export const TAG_CATEGORY_COLOR: Record<TagCategoryId, string> = {
-  action: "#ef4444",
-  waiting: "#eab308",
-  positive: "#22c55e",
-  source: "#3b82f6",
-  archive: "#6b7280",
+  action: "#E5C76B",   /* helles Gold (wichtig) */
+  waiting: "#B9952E",  /* gedämpftes Gold */
+  positive: "#D4AF37", /* Gold */
+  source: "#8A8A92",   /* Grau */
+  archive: "#5A5A60",  /* dunkles Grau */
 };
 
 export const TAG_CATEGORY_ORDER: TagCategoryId[] = ["action", "waiting", "positive", "source", "archive"];

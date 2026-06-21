@@ -9,9 +9,21 @@ export function AppHeader({ email }: { email: string }) {
           <Link href="/" className="font-semibold tracking-tight">
             VoltaDigital<span className="text-[color:var(--color-accent)]">CRM</span>
           </Link>
-          <nav className="hidden sm:flex items-center gap-4 text-sm">
+          <nav className="hidden lg:flex items-center gap-4 text-sm">
+            <Link href="/dashboard" className="text-[color:var(--color-muted)] hover:text-[color:var(--color-text)]">
+              Übersicht
+            </Link>
             <Link href="/board" className="text-[color:var(--color-muted)] hover:text-[color:var(--color-text)]">
               Pipeline
+            </Link>
+            <Link href="/aufgaben" className="text-[color:var(--color-muted)] hover:text-[color:var(--color-text)]">
+              Aufgaben
+            </Link>
+            <Link href="/kalender" className="text-[color:var(--color-muted)] hover:text-[color:var(--color-text)]">
+              Kalender
+            </Link>
+            <Link href="/rechnungen" className="text-[color:var(--color-muted)] hover:text-[color:var(--color-text)]">
+              Rechnungen
             </Link>
             <Link href="/list" className="text-[color:var(--color-muted)] hover:text-[color:var(--color-text)]">
               Liste
