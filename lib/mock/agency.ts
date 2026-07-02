@@ -34,6 +34,7 @@ export const CLIENTS: Client[] = [
   { slug: "jerome", name: "Jerome Deres Coaching", type: "Coaching", mrr: 2500, status: "aktiv", nextMeeting: day(1) },
   { slug: "heidi", name: "Heidi - The Salon CEO", type: "Beauty / Salon", mrr: 1200, status: "aktiv", nextMeeting: day(0) },
   { slug: "ellys", name: "Ellys Glow Up", type: "Beauty", mrr: 900, status: "onboarding", nextMeeting: day(2) },
+  { slug: "nikola", name: "Nikola - MDK", type: "Physio / MDK System", mrr: 0, status: "aktiv" },
   { slug: "volta", name: "Volta — Inbound", type: "Agentur (intern)", mrr: 0, status: "aktiv" },
 ];
 
@@ -48,6 +49,7 @@ export const PIPELINE_BY_CLIENT: Record<string, ClientPipeline> = {
   jerome: { leads: 42, hot: 6, stages: [14, 11, 9, 8] },
   heidi: { leads: 27, hot: 4, stages: [10, 8, 5, 4] },
   ellys: { leads: 12, hot: 2, stages: [6, 3, 2, 1] },
+  nikola: { leads: 1, hot: 0, stages: [1, 0, 0, 0] },
   volta: { leads: 18, hot: 3, stages: [7, 5, 4, 2] },
 };
 
