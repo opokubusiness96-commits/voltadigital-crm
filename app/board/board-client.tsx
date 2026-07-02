@@ -717,10 +717,10 @@ function CardShell({
 }
 
 // Bekannte Team-Mitglieder die noch keinen Auth-Account haben
-// → werden als inaktive Placeholder angezeigt bis ihr Account angelegt wird
-const PENDING_TEAM_MEMBERS: Array<{ display_name: string; marker_color: string; emailHint: string }> = [
-  { display_name: "Simon", marker_color: "#eab308", emailHint: "simon" },
-];
+// → werden als inaktive Placeholder angezeigt bis ihr Account angelegt wird.
+// ACHTUNG: rendert mandantenunabhängig für ALLE Orgs — deshalb leer lassen,
+// solange es keine org-gescopte Lösung gibt (Jerome-Altlast "Simon" entfernt).
+const PENDING_TEAM_MEMBERS: Array<{ display_name: string; marker_color: string; emailHint: string }> = [];
 
 function UserDock({ profiles }: { profiles: Profile[] }) {
   const realLabels = new Set(
