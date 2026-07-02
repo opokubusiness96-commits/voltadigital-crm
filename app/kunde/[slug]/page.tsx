@@ -3,6 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { ArrowLeft, ArrowUpRight, Users, CheckSquare, Receipt, TrendingUp } from "lucide-react";
 import { getSupabaseServer } from "@/lib/supabase/server";
 import { isEmailAuthorized } from "@/lib/auth";
+import { isAgencyUser } from "@/lib/org";
 import { AppHeader } from "@/components/AppHeader";
 import { Card, PriorityBadge, InvoiceStatusBadge } from "@/components/cockpit/ui";
 import { formatEUR } from "@/lib/utils";
@@ -30,6 +31,8 @@ export default async function KundeDashboard({ params }: { params: Promise<{ slu
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
   if (!isEmailAuthorized(user.email)) redirect("/login");
+  // Agentur-Cockpit: nur Volta-Org — Kunden-Accounts direkt zu ihrer Pipeline.
+  if (!(await isAgencyUser())) redirect("/board");
 
   const client = CLIENTS.find((c) => c.slug === slug);
   if (!client) return notFound();

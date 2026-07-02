@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { getSupabaseServer } from "@/lib/supabase/server";
 import { isEmailAuthorized } from "@/lib/auth";
+import { isAgencyUser } from "@/lib/org";
 import { Card, PriorityBadge, InvoiceStatusBadge } from "@/components/cockpit/ui";
 import { formatEUR } from "@/lib/utils";
 import {
@@ -42,6 +43,8 @@ export default async function DashboardPage() {
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
   if (!isEmailAuthorized(user.email)) redirect("/login");
+  // Agentur-Cockpit: nur Volta-Org — Kunden-Accounts direkt zu ihrer Pipeline.
+  if (!(await isAgencyUser())) redirect("/board");
   const email = user.email ?? "";
 
   const fin = financeSummary();

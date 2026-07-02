@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { getSupabaseServer } from "@/lib/supabase/server";
 import { isEmailAuthorized } from "@/lib/auth";
+import { isAgencyUser } from "@/lib/org";
 import { AppHeader } from "@/components/AppHeader";
 import { Card } from "@/components/cockpit/ui";
 import { CAL_EVENTS, TODAY, day, clientName, type CalEvent } from "@/lib/mock/agency";
@@ -16,6 +17,8 @@ export default async function KalenderPage() {
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
   if (!isEmailAuthorized(user.email)) redirect("/login");
+  // Agentur-Cockpit: nur Volta-Org — Kunden-Accounts direkt zu ihrer Pipeline.
+  if (!(await isAgencyUser())) redirect("/board");
 
   // Woche (Mo–So) rund um den Referenz-Tag.
   const base = new Date(TODAY + "T00:00:00");

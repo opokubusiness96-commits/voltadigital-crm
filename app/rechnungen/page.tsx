@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { getSupabaseServer } from "@/lib/supabase/server";
 import { isEmailAuthorized } from "@/lib/auth";
+import { isAgencyUser } from "@/lib/org";
 import { AppHeader } from "@/components/AppHeader";
 import { Card, InvoiceStatusBadge } from "@/components/cockpit/ui";
 import { INVOICES, clientName, fmtDate, financeSummary } from "@/lib/mock/agency";
@@ -17,6 +18,8 @@ export default async function RechnungenPage() {
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
   if (!isEmailAuthorized(user.email)) redirect("/login");
+  // Agentur-Cockpit: nur Volta-Org — Kunden-Accounts direkt zu ihrer Pipeline.
+  if (!(await isAgencyUser())) redirect("/board");
 
   const { offen, ueberfaellig, bezahltMonat, mrr } = financeSummary();
   const invoices = [...INVOICES].sort(
