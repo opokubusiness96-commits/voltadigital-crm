@@ -3,8 +3,8 @@ import { Trash2 } from "lucide-react";
 import { isAgencyUser } from "@/lib/org";
 
 export async function AppHeader({ email }: { email: string }) {
-  // Cockpit-Navigation (Übersicht/Aufgaben/Kalender/Rechnungen) nur für die
-  // Agentur-Org — Kunden-Accounts sehen nur ihre echten Daten-Seiten.
+  // Rechnungen bleibt Agentur-only; Dashboard/Aufgaben/Kalender gibt es für
+  // alle Orgs (Agentur = Mock-Cockpit, Kunden-Orgs = echte Team-Daten).
   const agency = await isAgencyUser();
   return (
     <header className="border-b border-[color:var(--color-border)] bg-[color:var(--color-surface)]">
@@ -20,18 +20,16 @@ export async function AppHeader({ email }: { email: string }) {
             <Link href="/board" className="text-[color:var(--color-muted)] hover:text-[color:var(--color-text)]">
               Pipeline
             </Link>
+            <Link href="/aufgaben" className="text-[color:var(--color-muted)] hover:text-[color:var(--color-text)]">
+              Aufgaben
+            </Link>
+            <Link href="/kalender" className="text-[color:var(--color-muted)] hover:text-[color:var(--color-text)]">
+              Kalender
+            </Link>
             {agency && (
-              <>
-                <Link href="/aufgaben" className="text-[color:var(--color-muted)] hover:text-[color:var(--color-text)]">
-                  Aufgaben
-                </Link>
-                <Link href="/kalender" className="text-[color:var(--color-muted)] hover:text-[color:var(--color-text)]">
-                  Kalender
-                </Link>
-                <Link href="/rechnungen" className="text-[color:var(--color-muted)] hover:text-[color:var(--color-text)]">
-                  Rechnungen
-                </Link>
-              </>
+              <Link href="/rechnungen" className="text-[color:var(--color-muted)] hover:text-[color:var(--color-text)]">
+                Rechnungen
+              </Link>
             )}
             <Link href="/list" className="text-[color:var(--color-muted)] hover:text-[color:var(--color-text)]">
               Liste

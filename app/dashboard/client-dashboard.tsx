@@ -1,6 +1,9 @@
 import Link from "next/link";
 import {
   ArrowUpRight,
+  CalendarDays,
+  CheckSquare,
+  StickyNote,
   TrendingUp,
   Users,
   Trophy,
@@ -10,10 +13,21 @@ import {
 } from "lucide-react";
 import { getSupabaseServer } from "@/lib/supabase/server";
 import { AppHeader } from "@/components/AppHeader";
-import { Card } from "@/components/cockpit/ui";
+import { Card, PriorityBadge } from "@/components/cockpit/ui";
 import { formatEUR } from "@/lib/utils";
 import { LOST_STAGES, type Lead, type Stage } from "@/lib/types";
 import { getOrgProducts } from "@/lib/products";
+import {
+  CATEGORY_COLOR,
+  addDaysISO,
+  berlinDate,
+  fmtDay,
+  todayBerlin,
+  type TeamNote,
+  type TeamTask,
+} from "@/lib/team/types";
+import { getCalendarItems } from "@/lib/team/calendar-data";
+import { NoteBoard } from "./note-board";
 
 // Kunden-Dashboard (z. B. Nikola MDK System): Umsatz, Verläufe, Produkte und
 // Absprung in die Pipeline. Datenzugriff läuft über das User-JWT — RLS liefert
@@ -27,19 +41,21 @@ type MonthBucket = {
   wonCount: number;
 };
 
+// timestamptz kommt von PostgREST in UTC — für die Monats-KPIs zählt der
+// Berliner Monat (sonst rutschen Leads von 0–2 Uhr am Monatsersten in den Vormonat).
 function monthKey(iso: string): string {
-  return iso.slice(0, 7);
+  return berlinDate(iso).slice(0, 7);
 }
 
-function lastMonths(count: number): MonthBucket[] {
-  const now = new Date();
+function lastMonths(count: number, todayIso: string): MonthBucket[] {
+  const [y, m] = todayIso.slice(0, 7).split("-").map(Number);
   const buckets: MonthBucket[] = [];
   for (let i = count - 1; i >= 0; i--) {
-    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+    const d = new Date(Date.UTC(y, m - 1 - i, 1));
+    const key = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
     buckets.push({
       key,
-      label: d.toLocaleDateString("de-DE", { month: "short" }),
+      label: d.toLocaleDateString("de-DE", { month: "short", timeZone: "UTC" }),
       revenue: 0,
       newLeads: 0,
       wonCount: 0,
@@ -60,21 +76,41 @@ export async function ClientDashboard({
   firstName: string | null;
 }) {
   const supabase = await getSupabaseServer();
-  const { data } = await supabase
-    .from("leads")
-    .select("id, stage, value_estimate, created_at, updated_at")
-    .is("trashed_at", null);
+  const today = todayBerlin();
+  const [{ data }, { data: openTasksData }, upcomingItems, { data: notesData }] =
+    await Promise.all([
+      supabase
+        .from("leads")
+        .select("id, stage, value_estimate, created_at, updated_at")
+        .is("trashed_at", null),
+      supabase
+        .from("team_tasks")
+        .select("*")
+        .eq("done", false)
+        .order("due_date", { ascending: true, nullsFirst: false })
+        .limit(6),
+      getCalendarItems(supabase, today, addDaysISO(today, 60)),
+      supabase
+        .from("team_notes")
+        .select("*")
+        .order("pinned", { ascending: false })
+        .order("created_at", { ascending: false })
+        .limit(8),
+    ]);
   const leads = (data ?? []) as Pick<
     Lead,
     "id" | "stage" | "value_estimate" | "created_at" | "updated_at"
   >[];
+  const openTasks = (openTasksData ?? []) as TeamTask[];
+  const upcoming = upcomingItems.slice(0, 6);
+  const notes = (notesData ?? []) as TeamNote[];
 
   const won = leads.filter((l) => l.stage === "won");
   const lost = leads.filter((l) => LOST_STAGES.has(l.stage as Stage));
   const revenueTotal = won.reduce((s, l) => s + Number(l.value_estimate ?? 0), 0);
 
   // Won-Zeitpunkt wird nicht separat gespeichert — updated_at als Näherung.
-  const months = lastMonths(6);
+  const months = lastMonths(6, today);
   const byKey = new Map(months.map((m) => [m.key, m]));
   for (const l of leads) {
     const created = byKey.get(monthKey(l.created_at));
@@ -165,6 +201,62 @@ export async function ClientDashboard({
           </Card>
         </div>
 
+        {/* Team-Workspace: Aufgaben · Termine · Notizen */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-8">
+          <Card className="p-5">
+            <WidgetHead Icon={CheckSquare} title="Offene Aufgaben" href="/aufgaben" />
+            <div className="mt-3 divide-y divide-[color:var(--color-border)]">
+              {openTasks.map((t) => (
+                <div key={t.id} className="flex items-center gap-3 py-2.5 first:pt-0">
+                  <span
+                    className="w-1.5 h-1.5 rounded-full shrink-0"
+                    style={{ background: CATEGORY_COLOR[t.category] }}
+                  />
+                  <div className="flex-1 min-w-0 text-sm truncate">{t.title}</div>
+                  <PriorityBadge priority={t.priority} />
+                  <span className="text-xs text-[color:var(--color-muted)] tabular-nums shrink-0 w-12 text-right">
+                    {t.due_date ? fmtDay(t.due_date) : "—"}
+                  </span>
+                </div>
+              ))}
+              {openTasks.length === 0 && (
+                <p className="text-sm text-[color:var(--color-muted)] py-2">
+                  Keine offenen Aufgaben.
+                </p>
+              )}
+            </div>
+          </Card>
+
+          <Card className="p-5">
+            <WidgetHead Icon={CalendarDays} title="Nächste Termine" href="/kalender" />
+            <div className="mt-3 divide-y divide-[color:var(--color-border)]">
+              {upcoming.map((e) => (
+                <div key={e.id} className="flex items-center gap-3 py-2.5 first:pt-0">
+                  <span
+                    className="w-1.5 h-1.5 rounded-full shrink-0"
+                    style={{ background: CATEGORY_COLOR[e.category] }}
+                  />
+                  <div className="flex-1 min-w-0 text-sm truncate">{e.title}</div>
+                  <span className="text-xs text-[color:var(--color-muted)] tabular-nums shrink-0">
+                    {fmtDay(e.date)}
+                    {e.time ? ` · ${e.time}` : ""}
+                  </span>
+                </div>
+              ))}
+              {upcoming.length === 0 && (
+                <p className="text-sm text-[color:var(--color-muted)] py-2">Keine Termine geplant.</p>
+              )}
+            </div>
+          </Card>
+
+          <Card className="p-5">
+            <WidgetHead Icon={StickyNote} title="Team-Notizen" />
+            <div className="mt-3">
+              <NoteBoard initial={notes} />
+            </div>
+          </Card>
+        </div>
+
         {/* Produkte */}
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
@@ -213,6 +305,33 @@ export async function ClientDashboard({
         </Card>
       </main>
     </>
+  );
+}
+
+function WidgetHead({
+  Icon,
+  title,
+  href,
+}: {
+  Icon: React.ComponentType<{ className?: string }>;
+  title: string;
+  href?: string;
+}) {
+  return (
+    <div className="flex items-center justify-between">
+      <div className="flex items-center gap-2">
+        <Icon className="w-4 h-4 text-[color:var(--color-accent)]" />
+        <h2 className="text-base font-semibold tracking-tight">{title}</h2>
+      </div>
+      {href && (
+        <Link
+          href={href}
+          className="text-xs text-[color:var(--color-accent)] hover:text-[color:var(--color-accent-2)] flex items-center gap-1"
+        >
+          Alle <ArrowUpRight className="w-3.5 h-3.5" />
+        </Link>
+      )}
+    </div>
   );
 }
 
