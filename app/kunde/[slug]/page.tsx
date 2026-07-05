@@ -31,8 +31,8 @@ export default async function KundeDashboard({ params }: { params: Promise<{ slu
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
   if (!isEmailAuthorized(user.email)) redirect("/login");
-  // Agentur-Cockpit: nur Volta-Org — Kunden-Accounts direkt zu ihrer Pipeline.
-  if (!(await isAgencyUser())) redirect("/board");
+  // Agentur-Cockpit: nur Volta-Org — Kunden-Accounts zu ihrem eigenen Dashboard.
+  if (!(await isAgencyUser())) redirect("/dashboard");
 
   const client = CLIENTS.find((c) => c.slug === slug);
   if (!client) return notFound();

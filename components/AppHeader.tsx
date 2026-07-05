@@ -10,15 +10,13 @@ export async function AppHeader({ email }: { email: string }) {
     <header className="border-b border-[color:var(--color-border)] bg-[color:var(--color-surface)]">
       <div className="mx-auto max-w-[1800px] px-6 h-14 flex items-center justify-between">
         <div className="flex items-center gap-6">
-          <Link href={agency ? "/" : "/board"} className="font-semibold tracking-tight">
+          <Link href="/" className="font-semibold tracking-tight">
             VoltaDigital<span className="text-[color:var(--color-accent)]">CRM</span>
           </Link>
           <nav className="hidden lg:flex items-center gap-4 text-sm">
-            {agency && (
-              <Link href="/dashboard" className="text-[color:var(--color-muted)] hover:text-[color:var(--color-text)]">
-                Übersicht
-              </Link>
-            )}
+            <Link href="/dashboard" className="text-[color:var(--color-muted)] hover:text-[color:var(--color-text)]">
+              {agency ? "Übersicht" : "Dashboard"}
+            </Link>
             <Link href="/board" className="text-[color:var(--color-muted)] hover:text-[color:var(--color-text)]">
               Pipeline
             </Link>

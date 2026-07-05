@@ -14,7 +14,8 @@ import {
 } from "lucide-react";
 import { getSupabaseServer } from "@/lib/supabase/server";
 import { isEmailAuthorized } from "@/lib/auth";
-import { isAgencyUser } from "@/lib/org";
+import { AGENCY_ORG_SLUG, getOrgInfo } from "@/lib/org";
+import { ClientDashboard } from "./client-dashboard";
 import { Card, PriorityBadge, InvoiceStatusBadge } from "@/components/cockpit/ui";
 import { formatEUR } from "@/lib/utils";
 import {
@@ -43,8 +44,19 @@ export default async function DashboardPage() {
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
   if (!isEmailAuthorized(user.email)) redirect("/login");
-  // Agentur-Cockpit: nur Volta-Org — Kunden-Accounts direkt zu ihrer Pipeline.
-  if (!(await isAgencyUser())) redirect("/board");
+  // Agentur-Cockpit nur für die Volta-Org — Kunden-Orgs (Nikola, Jerome, …)
+  // bekommen ihr eigenes Dashboard (Umsatz, Verläufe, Produkte → Pipeline).
+  const orgInfo = await getOrgInfo();
+  if (!orgInfo) redirect("/board");
+  if (orgInfo.slug !== AGENCY_ORG_SLUG) {
+    return (
+      <ClientDashboard
+        email={user.email ?? ""}
+        orgName={orgInfo.name}
+        orgSlug={orgInfo.slug}
+      />
+    );
+  }
   const email = user.email ?? "";
 
   const fin = financeSummary();
