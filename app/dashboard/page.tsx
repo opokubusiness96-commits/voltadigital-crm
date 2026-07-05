@@ -14,7 +14,7 @@ import {
 } from "lucide-react";
 import { getSupabaseServer } from "@/lib/supabase/server";
 import { isEmailAuthorized } from "@/lib/auth";
-import { AGENCY_ORG_SLUG, getOrgInfo } from "@/lib/org";
+import { AGENCY_ORG_SLUG, firstNameOf, getOrgInfo } from "@/lib/org";
 import { ClientDashboard } from "./client-dashboard";
 import { Card, PriorityBadge, InvoiceStatusBadge } from "@/components/cockpit/ui";
 import { formatEUR } from "@/lib/utils";
@@ -48,12 +48,14 @@ export default async function DashboardPage() {
   // bekommen ihr eigenes Dashboard (Umsatz, Verläufe, Produkte → Pipeline).
   const orgInfo = await getOrgInfo();
   if (!orgInfo) redirect("/board");
+  const firstName = firstNameOf(orgInfo.displayName);
   if (orgInfo.slug !== AGENCY_ORG_SLUG) {
     return (
       <ClientDashboard
         email={user.email ?? ""}
         orgName={orgInfo.name}
         orgSlug={orgInfo.slug}
+        firstName={firstName}
       />
     );
   }
@@ -119,7 +121,7 @@ export default async function DashboardPage() {
         <div className="mb-8 flex items-end justify-between gap-4 flex-wrap">
           <div>
             <p className="text-xs uppercase tracking-[0.18em] text-[color:var(--color-accent)] mb-2">Volta Digital · Übersicht</p>
-            <h1 className="text-3xl font-bold tracking-tight">Willkommen zurück, David</h1>
+            <h1 className="text-3xl font-bold tracking-tight">Willkommen zurück{firstName ? `, ${firstName}` : ""}</h1>
             <p className="text-[color:var(--color-muted)] mt-1">Wähle einen Kunden für sein Dashboard — oder dein Tagesüberblick darunter.</p>
           </div>
           <div className="flex flex-wrap gap-2">

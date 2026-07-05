@@ -52,10 +52,12 @@ export async function ClientDashboard({
   email,
   orgName,
   orgSlug,
+  firstName,
 }: {
   email: string;
   orgName: string;
   orgSlug: string;
+  firstName: string | null;
 }) {
   const supabase = await getSupabaseServer();
   const { data } = await supabase
@@ -110,7 +112,7 @@ export async function ClientDashboard({
             <p className="text-xs uppercase tracking-[0.18em] text-[color:var(--color-accent)] mb-2">
               {orgName} · Dashboard
             </p>
-            <h1 className="text-3xl font-bold tracking-tight">Willkommen zurück</h1>
+            <h1 className="text-3xl font-bold tracking-tight">Willkommen zurück{firstName ? `, ${firstName}` : ""}</h1>
             <p className="text-[color:var(--color-muted)] mt-1">
               Umsatz, Verläufe und Produkte auf einen Blick — Leads bearbeitest du in der Pipeline.
             </p>
