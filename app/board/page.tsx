@@ -58,6 +58,7 @@ export default async function BoardPage() {
           currentUserId={user.id}
           tags={(tags ?? []) as Tag[]}
           leadTags={(leadTags ?? []) as LeadTagLink[]}
+          orgName={ws.activeOrgName}
         />
       </main>
     </>

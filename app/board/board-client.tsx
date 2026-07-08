@@ -42,9 +42,10 @@ type Props = {
   currentUserId: string;
   tags: Tag[];
   leadTags: LeadTagLink[];
+  orgName?: string;
 };
 
-export function BoardClient({ leads: initialLeads, profiles, lastActivityByLead, currentUserId, tags, leadTags: initialLeadTags }: Props) {
+export function BoardClient({ leads: initialLeads, profiles, lastActivityByLead, currentUserId, tags, leadTags: initialLeadTags, orgName }: Props) {
   const [leads, setLeads] = useState<Lead[]>(initialLeads);
   const [leadTags, setLeadTags] = useState<LeadTagLink[]>(initialLeadTags);
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -213,22 +214,33 @@ export function BoardClient({ leads: initialLeads, profiles, lastActivityByLead,
 
   return (
     <>
-      <div className="flex items-center justify-between mb-3 px-2">
+      <div className="flex items-center justify-between mb-3 px-2 gap-3 flex-wrap">
         <div>
-          <h1 className="text-xl font-semibold">Pipeline</h1>
+          <h1 className="text-xl font-semibold">
+            Pipeline
+            {orgName && (
+              <span className="text-[color:var(--color-muted)] font-normal"> · {orgName}</span>
+            )}
+          </h1>
           <p className="text-xs text-[color:var(--color-muted)]">
             {hasActiveFilter
               ? `${filteredLeads.length} von ${leads.length} Leads (gefiltert)`
               : `${leads.length} Leads · Karte ziehen zum Stage-Wechsel · User-Kreis auf Lead ziehen zum Taggen`}
           </p>
         </div>
-        <div className="flex items-center gap-2 text-sm">
+        <div className="flex items-center gap-3 text-sm">
           {pending && <span className="text-[color:var(--color-muted)] text-xs">speichern…</span>}
           <Link
             href="/list"
             className="text-[color:var(--color-muted)] hover:text-[color:var(--color-text)]"
           >
             Liste-Ansicht
+          </Link>
+          <Link
+            href="/leads/new"
+            className="inline-flex items-center gap-1.5 rounded-md bg-[color:var(--color-accent)] text-[color:var(--color-accent-fg)] font-semibold px-3 py-1.5 hover:opacity-90 transition"
+          >
+            + Lead hinzufügen
           </Link>
         </div>
       </div>

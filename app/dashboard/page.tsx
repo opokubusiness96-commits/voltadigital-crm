@@ -15,6 +15,7 @@ import {
 import { getSupabaseServer } from "@/lib/supabase/server";
 import { isEmailAuthorized } from "@/lib/auth";
 import { AGENCY_ORG_SLUG, firstNameOf, getOrgInfo } from "@/lib/org";
+import { setActiveOrg } from "@/app/actions/workspace";
 import { ClientDashboard } from "./client-dashboard";
 import { Card, PriorityBadge, InvoiceStatusBadge } from "@/components/cockpit/ui";
 import { formatEUR } from "@/lib/utils";
@@ -25,9 +26,6 @@ import {
   INVOICES,
   CAL_EVENTS,
   AD_PERFORMANCE,
-  PIPELINE_BY_CLIENT,
-  FUNNEL_LABELS,
-  FUNNEL_TONE,
   TODAY,
   financeSummary,
   taskBucket,
@@ -60,6 +58,21 @@ export default async function DashboardPage() {
     );
   }
   const email = user.email ?? "";
+
+  // Echte Kunden-Orgs + Lead-Zahlen für die Pipeline-Kacheln (Agentur sieht via RLS alle).
+  const [{ data: orgRows }, { data: leadRows }] = await Promise.all([
+    supabase.from("organizations").select("id, slug, name").order("name"),
+    supabase.from("leads").select("org_id, stage").is("trashed_at", null),
+  ]);
+  const clientOrgs = ((orgRows ?? []) as { id: string; slug: string; name: string }[]).filter(
+    (o) => o.slug !== AGENCY_ORG_SLUG,
+  );
+  const leadCountByOrg = new Map<string, number>();
+  const wonCountByOrg = new Map<string, number>();
+  for (const l of (leadRows ?? []) as { org_id: string; stage: string }[]) {
+    leadCountByOrg.set(l.org_id, (leadCountByOrg.get(l.org_id) ?? 0) + 1);
+    if (l.stage === "won") wonCountByOrg.set(l.org_id, (wonCountByOrg.get(l.org_id) ?? 0) + 1);
+  }
 
   const fin = financeSummary();
   const openTasks = TASKS.filter((t) => !t.done);
@@ -151,60 +164,39 @@ export default async function DashboardPage() {
           ))}
         </div>
 
-        {/* Kunden — Kachel-Ansicht, Klick → eigenes Kunden-Dashboard */}
+        {/* Kunden-Pipelines — Klick öffnet die ECHTE Pipeline des Kunden (aktive Org). */}
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-xl font-semibold tracking-tight">Kunden</h2>
-          <span className="text-xs text-[color:var(--color-muted)]">Klick öffnet das Kunden-Dashboard</span>
+          <h2 className="text-xl font-semibold tracking-tight">Kunden-Pipelines</h2>
+          <span className="text-xs text-[color:var(--color-muted)]">Klick öffnet die Pipeline des Kunden</span>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 mb-10">
-          {CLIENTS.map((c) => {
-            const pipe = PIPELINE_BY_CLIENT[c.slug] ?? { leads: 0, hot: 0, stages: [0, 0, 0, 0] };
-            const total = pipe.stages.reduce((a, s) => a + s, 0) || 1;
-            const open = openTasks.filter((t) => t.client === c.slug).length;
-            return (
-              <Link
-                key={c.slug}
-                href={`/kunde/${c.slug}`}
-                className="rounded-xl border border-[color:var(--color-border)] bg-[color:var(--color-surface)] p-5 block transition hover:border-[color:var(--color-accent)] group"
+          {clientOrgs.map((o) => (
+            <form key={o.id} action={setActiveOrg.bind(null, o.id, "/board")}>
+              <button
+                type="submit"
+                className="w-full text-left rounded-xl border border-[color:var(--color-border)] bg-[color:var(--color-surface)] p-5 block transition hover:border-[color:var(--color-accent)] group"
               >
                 <div className="flex items-start justify-between">
-                  <div>
-                    <div className="text-lg font-semibold group-hover:text-[color:var(--color-accent)] transition">{c.name}</div>
-                    <div className="text-xs text-[color:var(--color-muted)] mt-0.5">{c.type}</div>
-                  </div>
-                  <StatusPill status={c.status} />
+                  <div className="text-lg font-semibold group-hover:text-[color:var(--color-accent)] transition">{o.name}</div>
+                  <ArrowUpRight className="w-5 h-5 text-[color:var(--color-muted)] group-hover:text-[color:var(--color-accent)] transition" />
                 </div>
-
+                <div className="text-xs text-[color:var(--color-muted)] mt-0.5">Pipeline öffnen →</div>
                 <div className="flex items-end gap-6 mt-4">
                   <div>
-                    <div className="text-2xl font-bold font-display">{pipe.leads}</div>
+                    <div className="text-2xl font-bold font-display">{leadCountByOrg.get(o.id) ?? 0}</div>
                     <div className="text-xs text-[color:var(--color-muted)]">Leads</div>
                   </div>
                   <div>
-                    <div className="text-2xl font-bold font-display text-[color:var(--color-accent)]">{pipe.hot}</div>
-                    <div className="text-xs text-[color:var(--color-muted)]">Hot</div>
-                  </div>
-                  <ArrowUpRight className="w-5 h-5 ml-auto text-[color:var(--color-muted)] group-hover:text-[color:var(--color-accent)] transition" />
-                </div>
-
-                {/* Mini-Funnel */}
-                <div className="mt-4">
-                  <div className="flex h-1.5 w-full overflow-hidden rounded-full bg-[color:var(--color-surface-2)]">
-                    {pipe.stages.map((count, i) => (
-                      <div key={i} style={{ width: `${(count / total) * 100}%`, background: FUNNEL_TONE[i] }} />
-                    ))}
+                    <div className="text-2xl font-bold font-display text-[color:var(--color-accent)]">{wonCountByOrg.get(o.id) ?? 0}</div>
+                    <div className="text-xs text-[color:var(--color-muted)]">Gewonnen</div>
                   </div>
                 </div>
-
-                {/* Fußzeile: MRR · Aufgaben · Termin */}
-                <div className="grid grid-cols-3 gap-3 mt-4">
-                  <Foot label="MRR" value={c.mrr ? formatEUR(c.mrr) : "—"} />
-                  <Foot label="Aufgaben" value={String(open)} />
-                  <Foot label="Termin" value={c.nextMeeting ? fmtDate(c.nextMeeting) : "—"} />
-                </div>
-              </Link>
-            );
-          })}
+              </button>
+            </form>
+          ))}
+          {clientOrgs.length === 0 && (
+            <Card className="p-5 text-sm text-[color:var(--color-muted)]">Noch keine Kunden-Orgs angelegt.</Card>
+          )}
         </div>
 
         {/* Dein Tagesüberblick (über alle Kunden) */}
@@ -337,15 +329,3 @@ function Foot({ label, value, accent }: { label: string; value: string; accent?:
   );
 }
 
-const STATUS_PILL: Record<string, string> = {
-  aktiv: "text-[color:var(--color-accent)] border-[color:var(--color-accent)]/35",
-  onboarding: "text-[color:var(--color-text)] border-white/20",
-  pausiert: "text-[color:var(--color-muted)] border-white/10",
-};
-function StatusPill({ status }: { status: string }) {
-  return (
-    <span className={`text-[10px] uppercase tracking-wide rounded-full border px-2 py-0.5 ${STATUS_PILL[status] ?? ""}`}>
-      {status}
-    </span>
-  );
-}

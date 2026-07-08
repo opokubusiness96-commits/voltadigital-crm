@@ -159,7 +159,7 @@ function extractAnswers(qaList: Array<{ question?: string; answer?: string }> | 
 const SETTERS: Record<string, { calendly_user_uri: string; profile_email: string }> = {
   "simon-damm": {
     calendly_user_uri: "https://api.calendly.com/users/bc4deb97-377b-41cf-a34d-7d411388768e",
-    profile_email: "simon.damm@yahoo.de",
+    profile_email: "Simon.damm007@gmail.com",
   },
   // "jerome-deres": { calendly_user_uri: "...", profile_email: "..." },
   // "heidi-yeboah": { calendly_user_uri: "...", profile_email: "..." },
