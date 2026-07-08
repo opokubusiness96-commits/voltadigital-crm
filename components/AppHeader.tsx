@@ -1,11 +1,13 @@
 import Link from "next/link";
 import { Trash2 } from "lucide-react";
-import { isAgencyUser } from "@/lib/org";
+import { getWorkspace } from "@/lib/org";
+import { OrgSwitcher } from "@/components/OrgSwitcher";
 
 export async function AppHeader({ email }: { email: string }) {
   // Rechnungen bleibt Agentur-only; Dashboard/Aufgaben/Kalender gibt es für
   // alle Orgs (Agentur = Mock-Cockpit, Kunden-Orgs = echte Team-Daten).
-  const agency = await isAgencyUser();
+  const ws = await getWorkspace();
+  const agency = ws?.isAgency ?? false;
   return (
     <header className="border-b border-[color:var(--color-border)] bg-[color:var(--color-surface)]">
       <div className="mx-auto max-w-[1800px] px-6 h-14 flex items-center justify-between">
@@ -13,6 +15,9 @@ export async function AppHeader({ email }: { email: string }) {
           <Link href="/" className="font-semibold tracking-tight">
             VoltaDigital<span className="text-[color:var(--color-accent)]">CRM</span>
           </Link>
+          {agency && ws && ws.allOrgs.length > 1 && (
+            <OrgSwitcher orgs={ws.allOrgs} activeOrgId={ws.activeOrgId} />
+          )}
           <nav className="hidden lg:flex items-center gap-4 text-sm">
             <Link href="/dashboard" className="text-[color:var(--color-muted)] hover:text-[color:var(--color-text)]">
               {agency ? "Übersicht" : "Dashboard"}

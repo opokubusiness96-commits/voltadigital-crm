@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getSupabaseServer } from "@/lib/supabase/server";
 import { isEmailAuthorized } from "@/lib/auth";
+import { getWorkspace } from "@/lib/org";
 import { AppHeader } from "@/components/AppHeader";
 import {
   STAGES,
@@ -20,9 +21,13 @@ export default async function StatistikPage() {
   if (!user) redirect("/login");
   if (!isEmailAuthorized(user.email)) redirect("/login");
 
+  const ws = await getWorkspace();
+  if (!ws) redirect("/login");
+
   const { data: leads } = await supabase
     .from("leads")
     .select("id, name, first_name, last_name, email, stage, value_estimate, updated_at")
+    .eq("org_id", ws.activeOrgId)
     .is("trashed_at", null)
     .order("updated_at", { ascending: false });
 

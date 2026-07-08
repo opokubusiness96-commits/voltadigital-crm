@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { getSupabaseServer, getSupabaseServiceRole } from "@/lib/supabase/server";
+import { getActiveOrgId } from "@/lib/org";
 import { LOST_STAGES, type Stage, type Source, type TagCategoryId } from "@/lib/types";
 import { sendStageEmail, STAGE_EMAIL_MAP } from "@/lib/brevo";
 
@@ -150,19 +151,17 @@ export async function createTag(label: string, categoryId: TagCategoryId) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { ok: false, error: "not authenticated" };
 
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("org_id")
-    .eq("id", user.id)
-    .single();
-  if (!profile) return { ok: false, error: "profile not found" };
+  // Aktive Org: Kunde = eigene, Agentur = gewählte Kunden-Org (Cookie),
+  // damit neue Tags in der aktuell bearbeiteten Pipeline landen.
+  const orgId = await getActiveOrgId();
+  if (!orgId) return { ok: false, error: "keine aktive Org" };
 
   const trimmed = label.trim();
   if (!trimmed) return { ok: false, error: "label required" };
 
   const { data, error } = await supabase
     .from("tags")
-    .insert({ org_id: profile.org_id, category_id: categoryId, label: trimmed })
+    .insert({ org_id: orgId, category_id: categoryId, label: trimmed })
     .select("id, label, category_id")
     .single();
 
@@ -354,17 +353,14 @@ export async function createLead(input: {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { ok: false, error: "not authenticated" };
 
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("org_id")
-    .eq("id", user.id)
-    .single();
-  if (!profile) return { ok: false, error: "profile not found" };
+  // Aktive Org: Kunde = eigene, Agentur = gewählte Kunden-Org (Cookie).
+  const orgId = await getActiveOrgId();
+  if (!orgId) return { ok: false, error: "keine aktive Org" };
 
   const { data, error } = await supabase
     .from("leads")
     .insert({
-      org_id: profile.org_id,
+      org_id: orgId,
       name: input.name,
       email: input.email,
       phone: input.phone ?? null,
@@ -380,7 +376,7 @@ export async function createLead(input: {
   if (error || !data) return { ok: false, error: error?.message ?? "insert failed" };
 
   await supabase.from("activities").insert({
-    org_id: profile.org_id,
+    org_id: orgId,
     lead_id: data.id,
     type: "lead_created",
     content: "Lead manuell angelegt",

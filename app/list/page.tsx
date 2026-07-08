@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getSupabaseServer } from "@/lib/supabase/server";
 import { isEmailAuthorized } from "@/lib/auth";
+import { getWorkspace } from "@/lib/org";
 import { AppHeader } from "@/components/AppHeader";
 import { StageBadge } from "@/components/StageBadge";
 import { STAGES, STAGE_LABEL, SOURCES, SOURCE_LABEL, type Stage, type Source, type Lead } from "@/lib/types";
@@ -41,10 +42,16 @@ export default async function LeadsListPage({
     );
   }
 
-  // Profile-Liste für Owner-Filter
-  const { data: profiles } = await supabase
-    .from("profiles")
-    .select("id, email, display_name");
+  const ws = await getWorkspace();
+  if (!ws) redirect("/login");
+  const activeOrgId = ws.activeOrgId;
+
+  // Profile-Liste für Owner-Filter: aktive Org + Agentur. Kunde via RLS
+  // (eigene Org + Agentur), Agentur filtert explizit auf [aktive, Agentur].
+  const profilesSelect = supabase.from("profiles").select("id, email, display_name");
+  const { data: profiles } = await (ws.isAgency
+    ? profilesSelect.in("org_id", [activeOrgId, ws.homeOrgId])
+    : profilesSelect);
 
   const profileById = new Map(
     (profiles ?? []).map((p) => [p.id, p.display_name || p.email]),
@@ -57,6 +64,7 @@ export default async function LeadsListPage({
   let query = supabase
     .from("leads")
     .select("*")
+    .eq("org_id", activeOrgId)
     .is("trashed_at", null)
     .order(sortKey, { ascending: sortDir === "asc" });
 

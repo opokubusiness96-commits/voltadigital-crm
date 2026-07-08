@@ -6,6 +6,7 @@
 
 import { revalidatePath } from "next/cache";
 import { getSupabaseServer } from "@/lib/supabase/server";
+import { getActiveOrgId } from "@/lib/org";
 import { CATEGORIES, type TaskPriority, type TeamCategory } from "@/lib/team/types";
 
 type ActionResult = { ok: true } | { ok: false; error: string };
@@ -20,13 +21,10 @@ async function getCtx() {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) throw new Error("Nicht eingeloggt");
-  const { data: profile, error } = await supabase
-    .from("profiles")
-    .select("org_id")
-    .eq("id", user.id)
-    .single();
-  if (error || !profile) throw new Error("Kein Profil");
-  return { supabase, userId: user.id, orgId: profile.org_id as string };
+  // Aktive Org: Kunde = eigene, Agentur = gewählte Kunden-Org.
+  const orgId = await getActiveOrgId();
+  if (!orgId) throw new Error("Keine aktive Org");
+  return { supabase, userId: user.id, orgId };
 }
 
 function fail(e: unknown): { ok: false; error: string } {
