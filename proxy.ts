@@ -88,5 +88,6 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
+  // /assets (Download-PDFs) am Auth-Proxy vorbei direkt statisch ausliefern.
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|assets/).*)"],
 };
