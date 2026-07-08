@@ -2,8 +2,16 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
 
 // Öffentliche Pfade ohne Auth. Das Dashboard ist jetzt hinter dem Login (eigener
-// getUser-Check), daher NICHT mehr hier.
-const PUBLIC_PATHS = ["/login", "/auth/callback"];
+// getUser-Check), daher NICHT mehr hier. Passwort-Flow + Registrierung MÜSSEN
+// öffentlich sein — sonst wird der ausgeloggte User (bzw. der Reset-Link aus der
+// E-Mail) aufs Login zurückgeworfen und der Reset-Token geht verloren.
+const PUBLIC_PATHS = [
+  "/login",
+  "/auth/callback",
+  "/forgot-password",
+  "/reset-password",
+  "/register",
+];
 
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
