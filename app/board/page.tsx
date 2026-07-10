@@ -48,9 +48,9 @@ export default async function BoardPage() {
   }
 
   return (
-    <>
+    <div className="flex flex-col h-screen overflow-hidden">
       <AppHeader email={user.email ?? ""} />
-      <main className="px-4 py-6 max-w-[1800px] mx-auto">
+      <main className="flex-1 min-h-0 flex flex-col px-4 py-6 w-full max-w-[1800px] mx-auto">
         <BoardClient
           leads={(leads ?? []) as Lead[]}
           profiles={(profiles ?? []) as Profile[]}
@@ -61,6 +61,6 @@ export default async function BoardPage() {
           orgName={ws.activeOrgName}
         />
       </main>
-    </>
+    </div>
   );
 }

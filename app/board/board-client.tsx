@@ -334,9 +334,9 @@ export function BoardClient({ leads: initialLeads, profiles, lastActivityByLead,
 
       {mounted ? (
       <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-      <div className="flex gap-4">
+      <div className="flex gap-4 flex-1 min-h-0">
         <UserDock profiles={profiles.filter((p) => !!p.marker_color)} />
-        <div className="flex-1 flex gap-3 overflow-x-auto pb-4 snap-x items-start">
+        <div className="flex-1 min-h-0 flex gap-3 overflow-x-auto pb-4 snap-x items-stretch">
           {STAGES.map((stage) => {
             const stageLeads = filteredLeads.filter((l) => l.stage === stage);
             const totalValue = stageLeads.reduce(
@@ -456,7 +456,7 @@ function Column({
           {count}{totalValue > 0 && ` · ${formatEUR(totalValue)}`}
         </span>
       </div>
-      <div className="flex-1 p-1.5 space-y-1.5 min-h-[400px]">{children}</div>
+      <div className="flex-1 min-h-0 overflow-y-auto p-1.5 space-y-1.5">{children}</div>
     </div>
   );
 }
