@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
+import { createPortal } from "react-dom";
 import {
   DndContext,
   type DragEndEvent,
@@ -486,15 +487,25 @@ function Card({
 }) {
   const drag = useDraggable({ id: lead.id, data: { type: "card" } });
   const drop = useDroppable({ id: `lead-${lead.id}`, data: { type: "lead", leadId: lead.id } });
+  const wrapRef = useRef<HTMLDivElement | null>(null);
+  const [previewRect, setPreviewRect] = useState<DOMRect | null>(null);
   const setRef = (el: HTMLDivElement | null) => {
+    wrapRef.current = el;
     drag.setNodeRef(el);
     drop.setNodeRef(el);
   };
+  const hasPreview = hasHoverPreview(lead);
   return (
     <div
       ref={setRef}
       {...drag.attributes}
       {...drag.listeners}
+      onMouseEnter={() => {
+        if (drag.isDragging || !hasPreview || !wrapRef.current) return;
+        setPreviewRect(wrapRef.current.getBoundingClientRect());
+      }}
+      onMouseLeave={() => setPreviewRect(null)}
+      onPointerDown={() => setPreviewRect(null)}
       className={cn(
         "cursor-grab active:cursor-grabbing transition-shadow",
         drag.isDragging && "opacity-30",
@@ -504,6 +515,9 @@ function Card({
         ? { boxShadow: `0 0 0 2px ${(drop.active.data.current as { color?: string }).color ?? "#c9a961"}` }
         : undefined}
     >
+      {previewRect && !drag.isDragging && (
+        <LeadHoverPreview lead={lead} anchor={previewRect} />
+      )}
       <CardShell
         lead={lead}
         owner={owner}
@@ -725,6 +739,113 @@ function CardShell({
         )}
       </div>
     </div>
+  );
+}
+
+const SITUATION_PREFIX = "Situation (Lead-Ad-Antwort):";
+
+function hasHoverPreview(lead: Lead): boolean {
+  return Boolean(
+    (lead.notes && lead.notes.trim()) ||
+      lead.business_years ||
+      lead.revenue_band ||
+      lead.quiz_score != null,
+  );
+}
+
+// Schwebende Vorschau beim Hovern über eine Lead-Karte. Wird per Portal an
+// document.body gehängt + fixed positioniert, damit die Scroll-Container
+// (Spalte overflow-y, Board overflow-x) sie nicht abschneiden.
+function LeadHoverPreview({ lead, anchor }: { lead: Lead; anchor: DOMRect }) {
+  if (typeof document === "undefined") return null;
+
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  const gap = 8;
+  const width = Math.min(300, vw - 24);
+  let left = anchor.right + gap;
+  if (left + width > vw - 8) left = anchor.left - gap - width; // nach links kippen
+  if (left < 8) left = Math.max(8, vw - width - 8);
+  const maxHeight = Math.min(340, vh - 16);
+  let top = anchor.top;
+  if (top + maxHeight > vh - 8) top = Math.max(8, vh - 8 - maxHeight);
+
+  const displayName =
+    [lead.first_name, lead.last_name].filter(Boolean).join(" ") || lead.name || "Unbenannt";
+
+  const notes = (lead.notes ?? "").trim();
+  let situation: string | null = null;
+  let rest = notes;
+  if (notes.startsWith(SITUATION_PREFIX)) {
+    const nl = notes.indexOf("\n");
+    situation = (nl === -1 ? notes : notes.slice(0, nl)).slice(SITUATION_PREFIX.length).trim();
+    rest = nl === -1 ? "" : notes.slice(nl).trim();
+  }
+
+  return createPortal(
+    <div
+      className="fixed z-40 pointer-events-none rounded-lg border border-[color:var(--color-border)] bg-[color:var(--color-surface)] shadow-2xl p-3 text-sm flex flex-col gap-2"
+      style={{ left, top, width, maxHeight }}
+    >
+      <div className="flex items-center justify-between gap-2">
+        <span className="font-semibold text-[13px] truncate">{displayName}</span>
+        <span
+          className={cn(
+            "inline-flex items-center rounded border px-1.5 py-0.5 text-[10px] font-medium leading-tight whitespace-nowrap shrink-0",
+            STAGE_BADGE[lead.stage],
+          )}
+        >
+          {STAGE_LABEL[lead.stage]}
+        </span>
+      </div>
+
+      {(lead.business_years || lead.revenue_band || lead.quiz_score != null) && (
+        <div className="flex flex-wrap gap-1">
+          {lead.business_years && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-[color:var(--color-border)]/40 text-[color:var(--color-muted)] leading-tight">
+              👤 {BUSINESS_YEARS_LABEL[lead.business_years] ?? lead.business_years}
+            </span>
+          )}
+          {lead.revenue_band && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-[color:var(--color-border)]/40 text-[color:var(--color-muted)] leading-tight">
+              💰 {REVENUE_LABEL[lead.revenue_band] ?? lead.revenue_band}
+            </span>
+          )}
+          {lead.quiz_score != null && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-[color:var(--color-border)]/40 text-[color:var(--color-muted)] leading-tight">
+              🎯 Score {lead.quiz_score}
+            </span>
+          )}
+        </div>
+      )}
+
+      {situation && (
+        <div>
+          <div className="text-[9px] uppercase tracking-wider text-[color:var(--color-muted)] mb-0.5">
+            Multiple-Choice-Antwort
+          </div>
+          <p className="text-[12px] leading-snug text-[color:var(--color-text)]">{situation}</p>
+        </div>
+      )}
+
+      {rest && (
+        <div className="min-h-0 flex flex-col">
+          <div className="text-[9px] uppercase tracking-wider text-[color:var(--color-muted)] mb-0.5">
+            Notizen
+          </div>
+          <p className="text-[12px] leading-snug text-[color:var(--color-muted)] whitespace-pre-wrap overflow-hidden [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:9]">
+            {rest}
+          </p>
+        </div>
+      )}
+
+      {!notes && (
+        <p className="text-[12px] text-[color:var(--color-muted)] italic">
+          Keine Notiz hinterlegt — Kennzahlen siehe oben.
+        </p>
+      )}
+    </div>,
+    document.body,
   );
 }
 
