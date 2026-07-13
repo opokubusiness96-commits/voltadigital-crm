@@ -5,6 +5,20 @@ const BREVO_API = "https://api.brevo.com/v3/smtp/email";
 const SENDER_EMAIL = process.env.BREVO_SENDER_EMAIL || "info@jeromederes.com";
 const SENDER_NAME = process.env.BREVO_SENDER_NAME || "Jerome Deres Coaching";
 
+// Absender ist info@jeromederes.com → automatische Mails NUR für Jeromes Org
+// feuern, damit andere Mandanten keine Mails von dieser Adresse bekommen.
+// Kommagetrennte Liste via BREVO_ENABLED_ORG_IDS überschreibbar; Default = Jerome.
+const BREVO_ENABLED_ORG_IDS: ReadonlySet<string> = new Set(
+  (process.env.BREVO_ENABLED_ORG_IDS || "326f2401-8450-41ad-8f43-0dba76e4a868")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean),
+);
+
+export function isBrevoEnabledOrg(orgId: string | null | undefined): boolean {
+  return !!orgId && BREVO_ENABLED_ORG_IDS.has(orgId);
+}
+
 export type EmailTemplate =
   | "lead_first_contact"
   | "setter_call_confirmation"
@@ -16,7 +30,9 @@ export type EmailTemplate =
   | "closer_followup"
   | "closer_no_show_recovery"
   | "welcome_onboarding"
-  | "lost_nurture";
+  | "lost_nurture"
+  // Manueller Button "Nummer prüfen" (Button B) — Stage-unabhängig, kein Auto-Trigger.
+  | "wrong_number_check";
 
 // Brevo-Template-IDs aus env (Numerische ID aus Brevo Dashboard)
 const TEMPLATE_ENV_MAP: Record<EmailTemplate, string> = {
@@ -31,25 +47,37 @@ const TEMPLATE_ENV_MAP: Record<EmailTemplate, string> = {
   closer_no_show_recovery: "BREVO_TPL_CLOSER_NO_SHOW",
   welcome_onboarding: "BREVO_TPL_WELCOME_ONBOARDING",
   lost_nurture: "BREVO_TPL_LOST_NURTURE",
+  wrong_number_check: "BREVO_TPL_NUMBER_CHECK",
 };
 
-// Templates die TRANSAKTIONAL sind (auch bei Opt-Out senden, weil direkt zum gebuchten Termin gehörig)
+// Templates die TRANSAKTIONAL sind (auch bei Opt-Out senden, weil direkt zum
+// gebuchten Termin bzw. zu einer bewussten operativen Aktion gehörig).
 const TRANSACTIONAL_TEMPLATES: ReadonlySet<EmailTemplate> = new Set([
   "setter_call_confirmation",
   "setter_call_reminder_24h",
   "setter_call_reminder_1h",
   "closer_call_confirmation",
+  // Manuelle "Nummer prüfen"-Mail ist eine bewusste operative Aktion des Setters.
+  "wrong_number_check",
 ]);
 
-// Mapping Stage-Transition → Email-Template (Stage = neue Stage; from-stage hier nicht entscheidend)
+// Bestätigungs-Mails dürfen NUR raus, wenn der zugehörige Termin bereits gebucht
+// ist (sonst käme "dein Termin ist bestätigt" ohne Datum). Beim manuellen Ziehen
+// einer Karte ohne Buchung wird der Versand daher übersprungen — die echte
+// Bestätigung feuert der Calendly-Webhook, sobald der Termin (mit Datum) steht.
+const CONFIRMATION_DATE_FIELD: Partial<Record<EmailTemplate, keyof LeadForEmail>> = {
+  setter_call_confirmation: "calendly_setter_scheduled_at",
+  closer_call_confirmation: "calendly_erstgespraech_scheduled_at",
+};
+
+// Mapping Stage-Transition → Email-Template. Bewusst NUR die drei von der Spec
+// freigegebenen Stages (A): alle anderen Stages → keine Mail. won /
+// klarheitsgespraech_no_show / klarheitsgespraech_lost sind absichtlich NICHT
+// gemappt (Templates existieren in Brevo weiter, falls später gewünscht).
 export const STAGE_EMAIL_MAP: Partial<Record<Stage, EmailTemplate>> = {
   setter_call_booked: "setter_call_confirmation",
   setter_no_show: "setter_no_show_recovery",
-  setter_lost: undefined,
   klarheitsgespraech_booked: "closer_call_confirmation",
-  klarheitsgespraech_no_show: "closer_no_show_recovery",
-  klarheitsgespraech_lost: "lost_nurture",
-  won: "welcome_onboarding",
 };
 
 export type LeadForEmail = {
@@ -62,6 +90,8 @@ export type LeadForEmail = {
   email_opt_out: boolean;
   calendly_setter_scheduled_at: string | null;
   calendly_erstgespraech_scheduled_at: string | null;
+  // Vorname des zugewiesenen Setters (für Merge-Tag setterName); optional.
+  setter_name?: string | null;
 };
 
 type AdminClient = {
@@ -80,17 +110,64 @@ function templateId(t: EmailTemplate): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-function templateParams(lead: LeadForEmail): Record<string, unknown> {
+// Termin-Formatierung de-DE / Europe-Berlin (deckt AT/DE ab).
+const APPT_DATE_FMT = new Intl.DateTimeFormat("de-DE", {
+  weekday: "long", day: "2-digit", month: "long", year: "numeric", timeZone: "Europe/Berlin",
+});
+const APPT_TIME_FMT = new Intl.DateTimeFormat("de-DE", {
+  hour: "2-digit", minute: "2-digit", timeZone: "Europe/Berlin",
+});
+function fmtDate(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  return isNaN(d.getTime()) ? "" : APPT_DATE_FMT.format(d);
+}
+function fmtTime(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  return isNaN(d.getTime()) ? "" : APPT_TIME_FMT.format(d);
+}
+function fmtFull(iso: string | null | undefined): string {
+  const date = fmtDate(iso);
+  return date ? `${date} um ${fmtTime(iso)} Uhr` : "";
+}
+
+// Templates rund um den Closer/Klarheitsgespräch (Jerome) — steuert Termin-Feld
+// und Reschedule-Link (Jerome vs. Simon).
+const CLOSER_TEMPLATES: ReadonlySet<EmailTemplate> = new Set([
+  "closer_call_confirmation",
+  "closer_followup",
+  "closer_no_show_recovery",
+]);
+
+function templateParams(lead: LeadForEmail, template?: EmailTemplate): Record<string, unknown> {
   const firstName = lead.first_name || lead.name?.split(" ")[0] || "";
   const lastName = lead.last_name || lead.name?.split(" ").slice(1).join(" ") || "";
+  const isCloser = !!template && CLOSER_TEMPLATES.has(template);
+  const apptIso = isCloser ? lead.calendly_erstgespraech_scheduled_at : lead.calendly_setter_scheduled_at;
+
+  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://crm.voltadigital.agency";
+  const setterUrl = process.env.NEXT_PUBLIC_CALENDLY_URL || "";
+  const closerUrl = process.env.NEXT_PUBLIC_CLOSER_CALENDLY_URL || setterUrl;
+  const rescheduleUrl = isCloser ? closerUrl : setterUrl;
+
   return {
     firstName,
     lastName,
     fullName: [firstName, lastName].filter(Boolean).join(" "),
+    email: lead.email,
     coachName: "Jerome Deres",
-    setterScheduledAt: lead.calendly_setter_scheduled_at,
-    closerScheduledAt: lead.calendly_erstgespraech_scheduled_at,
-    unsubscribeUrl: `https://crm.jeromederes.com/api/unsubscribe?lead=${lead.id}`,
+    setterName: lead.setter_name || "Simon",
+    // Legacy-Tags, die die bestehenden Brevo-Templates schon nutzen — jetzt schön
+    // formatiert (de-DE) statt roher ISO-String.
+    setterScheduledAt: fmtFull(lead.calendly_setter_scheduled_at),
+    closerScheduledAt: fmtFull(lead.calendly_erstgespraech_scheduled_at),
+    // Neue, granular platzierbare Tags (Datum/Uhrzeit getrennt + Reschedule-Link).
+    terminDatum: fmtDate(apptIso),
+    terminUhrzeit: fmtTime(apptIso),
+    rescheduleUrl,
+    calendarUrl: rescheduleUrl,
+    unsubscribeUrl: `${siteUrl}/api/unsubscribe?lead=${lead.id}`,
   };
 }
 
@@ -102,6 +179,14 @@ export async function sendBrevoEmail(opts: {
   const apiKey = process.env.BREVO_API_KEY;
   if (!apiKey) return { ok: false, error: "BREVO_API_KEY not set" };
 
+  // TESTMODUS: Solange TEST_EMAIL gesetzt ist, gehen ALLE Mails (A + B) an diese
+  // Inbox statt an die echte Lead-Adresse. Das Logging in sendStageEmail schreibt
+  // weiterhin die ECHTE Lead-Adresse (to_email), damit der Nachweis stimmt.
+  const testEmail = process.env.TEST_EMAIL?.trim();
+  const recipient = testEmail
+    ? { email: testEmail, name: `TEST → ${opts.to.email}` }
+    : opts.to;
+
   const res = await fetch(BREVO_API, {
     method: "POST",
     headers: {
@@ -111,7 +196,7 @@ export async function sendBrevoEmail(opts: {
     },
     body: JSON.stringify({
       sender: { email: SENDER_EMAIL, name: SENDER_NAME },
-      to: [opts.to],
+      to: [recipient],
       templateId: opts.templateId,
       params: opts.params,
       replyTo: { email: SENDER_EMAIL, name: SENDER_NAME },
@@ -131,9 +216,19 @@ export async function sendStageEmail(
   supabase: AdminClient,
   lead: LeadForEmail,
   template: EmailTemplate,
-  opts: { force?: boolean } = {},
+  opts: { force?: boolean; trigger?: "auto" | "manual" } = {},
 ): Promise<{ ok: boolean; status: string; error?: string }> {
   if (!lead.email) return { ok: false, status: "no_email" };
+
+  // Auslöser (auto = Stage-Wechsel, manual = Button "Nummer prüfen") — landet im
+  // email_log.meta, damit kein Schema-Change nötig ist.
+  const trigger = opts.trigger ?? "auto";
+
+  // Bestätigungs-Mails nur mit gebuchtem Termin senden (siehe CONFIRMATION_DATE_FIELD).
+  const dateField = CONFIRMATION_DATE_FIELD[template];
+  if (dateField && !lead[dateField]) {
+    return { ok: false, status: "skipped_no_date" };
+  }
 
   // Opt-Out prüfen — Transaktionale Templates dürfen weiter
   if (lead.email_opt_out && !TRANSACTIONAL_TEMPLATES.has(template)) {
@@ -143,6 +238,7 @@ export async function sendStageEmail(
       template,
       to_email: lead.email,
       status: "skipped_optout",
+      meta: { trigger },
     });
     return { ok: false, status: "skipped_optout" };
   }
@@ -180,6 +276,7 @@ export async function sendStageEmail(
       to_email: lead.email,
       status: "failed",
       error: `template id env missing: ${TEMPLATE_ENV_MAP[template]}`,
+      meta: { trigger },
     });
     return { ok: false, status: "failed", error: "template_id_missing" };
   }
@@ -187,7 +284,7 @@ export async function sendStageEmail(
   const result = await sendBrevoEmail({
     to: { email: lead.email, name: [lead.first_name, lead.last_name].filter(Boolean).join(" ") || undefined },
     templateId: tpl,
-    params: templateParams(lead),
+    params: templateParams(lead, template),
   });
 
   if (!result.ok) {
@@ -198,6 +295,7 @@ export async function sendStageEmail(
       to_email: lead.email,
       status: "failed",
       error: result.error,
+      meta: { trigger },
     });
     return { ok: false, status: "failed", error: result.error };
   }
@@ -209,6 +307,7 @@ export async function sendStageEmail(
     to_email: lead.email,
     status: "sent",
     brevo_message_id: result.messageId,
+    meta: { trigger },
   });
   return { ok: true, status: "sent" };
 }

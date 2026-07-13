@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import crypto from "node:crypto";
 import { getSupabaseServiceRole } from "@/lib/supabase/server";
-import { sendStageEmail, STAGE_EMAIL_MAP } from "@/lib/brevo";
+import { sendStageEmail, STAGE_EMAIL_MAP, isBrevoEnabledOrg } from "@/lib/brevo";
 import type { Stage } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -425,8 +425,10 @@ export async function POST(req: Request) {
       }
     }
 
-    // Brevo: Confirmation-Email + Reminder-Scheduling (best-effort)
-    if (invitee?.email) {
+    // Brevo: Confirmation-Email + Reminder-Scheduling (best-effort).
+    // isBrevoEnabledOrg absichert zusätzlich, dass NUR Jerome-Leads Mails auslösen
+    // (der Webhook läuft ohnehin nur für DEFAULT_ORG_SLUG, aber doppelt hält besser).
+    if (invitee?.email && isBrevoEnabledOrg(orgId)) {
       const { data: leadFull } = await supabase
         .from("leads")
         .select("id, org_id, email, email_opt_out, first_name, last_name, name, calendly_setter_scheduled_at, calendly_erstgespraech_scheduled_at")
@@ -441,8 +443,9 @@ export async function POST(req: Request) {
             console.error("Calendly webhook: Brevo confirmation send failed", e);
           }
         }
-        // Reminders nur für Setter-Call planen (Erstgespraech kann analog wenn Templates da sind)
-        if (isSetterStage && scheduledAt) {
+        // Zeitbasierte Reminder (24h/1h) bewusst noch NICHT scharf — nur wenn
+        // REMINDERS_ENABLED=true. Sonst bleibt scheduled_emails/Cron ein Stub.
+        if (isSetterStage && scheduledAt && process.env.REMINDERS_ENABLED === "true") {
           const scheduled = new Date(scheduledAt).getTime();
           const reminders: Array<{ template: string; offsetMs: number }> = [
             { template: "setter_call_reminder_24h", offsetMs: -24 * 3_600_000 },

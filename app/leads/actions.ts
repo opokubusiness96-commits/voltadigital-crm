@@ -3,9 +3,9 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { getSupabaseServer, getSupabaseServiceRole } from "@/lib/supabase/server";
-import { getActiveOrgId } from "@/lib/org";
+import { getActiveOrgId, firstNameOf } from "@/lib/org";
 import { LOST_STAGES, type Stage, type Source, type TagCategoryId } from "@/lib/types";
-import { sendStageEmail, STAGE_EMAIL_MAP } from "@/lib/brevo";
+import { sendStageEmail, STAGE_EMAIL_MAP, isBrevoEnabledOrg } from "@/lib/brevo";
 
 type LeadUpdate = Partial<{
   stage: Stage;
@@ -30,7 +30,7 @@ export async function updateLead(id: string, patch: LeadUpdate) {
   // Vor Update: aktuellen Lead lesen (für Stage-from + Brevo-Daten)
   const { data: before } = await supabase
     .from("leads")
-    .select("stage, email, email_opt_out, first_name, last_name, name, org_id, calendly_setter_scheduled_at, calendly_erstgespraech_scheduled_at")
+    .select("stage, email, email_opt_out, first_name, last_name, name, org_id, owner_id, calendly_setter_scheduled_at, calendly_erstgespraech_scheduled_at")
     .eq("id", id)
     .maybeSingle();
 
@@ -38,11 +38,22 @@ export async function updateLead(id: string, patch: LeadUpdate) {
   if (error) return { ok: false, error: error.message };
 
   // Stage-Transition → Brevo Email feuern (best-effort, Fehler nicht propagieren)
-  if (before && patch.stage && patch.stage !== before.stage) {
+  // Nur für freigeschaltete Orgs (Absender info@jeromederes.com → nur Jerome).
+  if (before && patch.stage && patch.stage !== before.stage && isBrevoEnabledOrg(before.org_id)) {
     const template = STAGE_EMAIL_MAP[patch.stage];
     if (template && before.email) {
       try {
         const admin = getSupabaseServiceRole();
+        // Setter-Vorname (= zugewiesener Owner) für den Merge-Tag auflösen.
+        let setterName: string | null = null;
+        if (before.owner_id) {
+          const { data: ownerProfile } = await admin
+            .from("profiles")
+            .select("display_name")
+            .eq("id", before.owner_id)
+            .maybeSingle();
+          setterName = firstNameOf(ownerProfile?.display_name);
+        }
         await sendStageEmail(admin as never, {
           id,
           org_id: before.org_id,
@@ -51,6 +62,7 @@ export async function updateLead(id: string, patch: LeadUpdate) {
           first_name: before.first_name,
           last_name: before.last_name,
           name: before.name,
+          setter_name: setterName,
           calendly_setter_scheduled_at: before.calendly_setter_scheduled_at,
           calendly_erstgespraech_scheduled_at: before.calendly_erstgespraech_scheduled_at,
         }, template);
@@ -64,6 +76,73 @@ export async function updateLead(id: string, patch: LeadUpdate) {
   revalidatePath("/board");
   revalidatePath(`/leads/${id}`);
   return { ok: true };
+}
+
+// Button B — "Nummer prüfen": sendet SOFORT die feste Brevo-Vorlage an die Lead-
+// Mail, Stage-unabhängig, Re-Send erlaubt (force → Dedup umgangen). Nur für die
+// Jerome-Org (isBrevoEnabledOrg). Brevo-Fehler blockiert nichts, wird geloggt +
+// zurückgemeldet. Auslöser = "manual" (email_log.meta.trigger).
+export async function requestNumberCheck(leadId: string) {
+  const supabase = await getSupabaseServer();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { ok: false, status: "unauthenticated", error: "not authenticated" };
+
+  const { data: lead } = await supabase
+    .from("leads")
+    .select("id, org_id, email, email_opt_out, first_name, last_name, name, owner_id, calendly_setter_scheduled_at, calendly_erstgespraech_scheduled_at")
+    .eq("id", leadId)
+    .maybeSingle();
+  if (!lead) return { ok: false, status: "not_found", error: "lead not found" };
+
+  // Scoping: kein anderer Mandant darf diese Mail auslösen.
+  if (!isBrevoEnabledOrg(lead.org_id)) {
+    return { ok: false, status: "org_not_enabled", error: "org not enabled for brevo" };
+  }
+  if (!lead.email) return { ok: false, status: "no_email", error: "Lead hat keine E-Mail-Adresse" };
+
+  const admin = getSupabaseServiceRole();
+
+  // Setter-Vorname (= Owner) für den Merge-Tag.
+  let setterName: string | null = null;
+  if (lead.owner_id) {
+    const { data: ownerProfile } = await admin
+      .from("profiles")
+      .select("display_name")
+      .eq("id", lead.owner_id)
+      .maybeSingle();
+    setterName = firstNameOf(ownerProfile?.display_name);
+  }
+
+  let status = "failed";
+  let error: string | undefined;
+  try {
+    const res = await sendStageEmail(
+      admin as never,
+      {
+        id: lead.id,
+        org_id: lead.org_id,
+        email: lead.email,
+        email_opt_out: !!lead.email_opt_out,
+        first_name: lead.first_name,
+        last_name: lead.last_name,
+        name: lead.name,
+        setter_name: setterName,
+        calendly_setter_scheduled_at: lead.calendly_setter_scheduled_at,
+        calendly_erstgespraech_scheduled_at: lead.calendly_erstgespraech_scheduled_at,
+      },
+      "wrong_number_check",
+      { force: true, trigger: "manual" },
+    );
+    status = res.status;
+    error = res.error;
+  } catch (err) {
+    console.error("requestNumberCheck failed", err);
+    error = err instanceof Error ? err.message : String(err);
+  }
+
+  revalidatePath("/board");
+  revalidatePath(`/leads/${leadId}`);
+  return { ok: status === "sent", status, error, sentAt: new Date().toISOString() };
 }
 
 export async function addTagToLead(leadId: string, tagId: string) {

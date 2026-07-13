@@ -35,18 +35,21 @@ import {
 import { cn, formatEUR, timeAgo } from "@/lib/utils";
 import { updateLead, claimLead, addTagToLead, removeTagFromLead } from "../leads/actions";
 import { LeadCardActionMenu } from "@/components/crm/LeadCardActionMenu";
+import { NumberCheckButton } from "@/components/crm/NumberCheckButton";
 
 type Props = {
   leads: Lead[];
   profiles: Profile[];
   lastActivityByLead: Record<string, string>;
+  numberCheckByLead?: Record<string, string>;
+  brevoEnabled?: boolean;
   currentUserId: string;
   tags: Tag[];
   leadTags: LeadTagLink[];
   orgName?: string;
 };
 
-export function BoardClient({ leads: initialLeads, profiles, lastActivityByLead, currentUserId, tags, leadTags: initialLeadTags, orgName }: Props) {
+export function BoardClient({ leads: initialLeads, profiles, lastActivityByLead, numberCheckByLead, brevoEnabled, currentUserId, tags, leadTags: initialLeadTags, orgName }: Props) {
   const [leads, setLeads] = useState<Lead[]>(initialLeads);
   const [leadTags, setLeadTags] = useState<LeadTagLink[]>(initialLeadTags);
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -201,6 +204,22 @@ export function BoardClient({ leads: initialLeads, profiles, lastActivityByLead,
   }
 
   function moveLead(leadId: string, toStage: Stage, lostReason?: string) {
+    // Beim Wechsel in "Klarheitsgespräch gebucht": Jeromes Calendly öffnen, damit
+    // Simon direkt den Closer-Termin für den Lead eintragen kann. Synchron im
+    // Klick-Gesture (vor der Transition), sonst blockt der Popup-Blocker.
+    if (toStage === "klarheitsgespraech_booked") {
+      const closerUrl = process.env.NEXT_PUBLIC_CLOSER_CALENDLY_URL;
+      const l = leads.find((x) => x.id === leadId);
+      if (closerUrl && l) {
+        const name = [l.first_name, l.last_name].filter(Boolean).join(" ") || l.name || "";
+        const q = new URLSearchParams();
+        if (name) q.set("name", name);
+        if (l.email) q.set("email", l.email);
+        const url = q.toString() ? `${closerUrl}?${q.toString()}` : closerUrl;
+        window.open(url, "_blank", "noopener,noreferrer");
+      }
+    }
+
     const before = leads;
     setLeads((prev) => prev.map((l) => (l.id === leadId ? { ...l, stage: toStage, ...(lostReason ? { lost_reason: lostReason } : {}) } : l)));
     setError(null);
@@ -357,6 +376,8 @@ export function BoardClient({ leads: initialLeads, profiles, lastActivityByLead,
                     lead={lead}
                     owner={lead.owner_id ? profileById.get(lead.owner_id) ?? null : null}
                     lastActivity={lastActivityByLead[lead.id]}
+                    numberCheckAt={numberCheckByLead?.[lead.id]}
+                    brevoEnabled={brevoEnabled}
                     currentUserId={currentUserId}
                     onUntag={handleUntag}
                     leadTags={tagsByLeadId.get(lead.id) ?? []}
@@ -466,6 +487,8 @@ function Card({
   lead,
   owner,
   lastActivity,
+  numberCheckAt,
+  brevoEnabled,
   currentUserId,
   onUntag,
   leadTags,
@@ -477,6 +500,8 @@ function Card({
   lead: Lead;
   owner: Profile | null;
   lastActivity: string | undefined;
+  numberCheckAt?: string;
+  brevoEnabled?: boolean;
   currentUserId: string;
   onUntag: (leadId: string) => void;
   leadTags: Tag[];
@@ -495,17 +520,24 @@ function Card({
     drop.setNodeRef(el);
   };
   const hasPreview = hasHoverPreview(lead);
+  // WICHTIG: dnd-kit startet den Drag über das onPointerDown aus drag.listeners.
+  // Unser eigenes onPointerDown (Hover-Vorschau schließen) darf dieses NICHT
+  // überschreiben (sonst startet der Drag nie) → beide Handler zusammenführen.
+  const { onPointerDown: dragPointerDown, ...dragListeners } = drag.listeners ?? {};
   return (
     <div
       ref={setRef}
       {...drag.attributes}
-      {...drag.listeners}
+      {...dragListeners}
       onMouseEnter={() => {
         if (drag.isDragging || !hasPreview || !wrapRef.current) return;
         setPreviewRect(wrapRef.current.getBoundingClientRect());
       }}
       onMouseLeave={() => setPreviewRect(null)}
-      onPointerDown={() => setPreviewRect(null)}
+      onPointerDown={(e) => {
+        setPreviewRect(null);
+        dragPointerDown?.(e);
+      }}
       className={cn(
         "cursor-grab active:cursor-grabbing transition-shadow",
         drag.isDragging && "opacity-30",
@@ -522,6 +554,8 @@ function Card({
         lead={lead}
         owner={owner}
         lastActivity={lastActivity}
+        numberCheckAt={numberCheckAt}
+        brevoEnabled={brevoEnabled}
         currentUserId={currentUserId}
         onUntag={onUntag}
         leadTags={leadTags}
@@ -538,6 +572,8 @@ function CardShell({
   lead,
   owner,
   lastActivity,
+  numberCheckAt,
+  brevoEnabled,
   dragging,
   currentUserId,
   onUntag,
@@ -550,6 +586,8 @@ function CardShell({
   lead: Lead;
   owner: Profile | null;
   lastActivity: string | undefined;
+  numberCheckAt?: string;
+  brevoEnabled?: boolean;
   dragging?: boolean;
   currentUserId?: string;
   onUntag?: (leadId: string) => void;
@@ -559,7 +597,14 @@ function CardShell({
   allTags?: Tag[];
   onMoveStage?: (toStage: Stage) => void;
 }) {
+  // Optimistischer Marker-Zeitpunkt: initial vom Server, sofort nach Klick lokal.
+  const [numberRequestedAt, setNumberRequestedAt] = useState<string | undefined>(numberCheckAt);
+  useEffect(() => {
+    if (numberCheckAt) setNumberRequestedAt(numberCheckAt);
+  }, [numberCheckAt]);
+
   const dotColor = activityDot(lastActivity);
+  const fresh = isFreshLead(lead.created_at);
   const displayName =
     [lead.first_name, lead.last_name].filter(Boolean).join(" ") || lead.name || "Unbenannt";
   const ownerColor = owner?.marker_color ?? null;
@@ -585,9 +630,17 @@ function CardShell({
     <div
       className={cn(
         "relative rounded border bg-[color:var(--color-surface-2)] border-[color:var(--color-border)] px-2 py-1.5 text-sm hover:border-[color:var(--color-accent)] transition-colors",
+        fresh && "border-l-2 border-l-[color:var(--color-green)]",
         dragging && "shadow-2xl border-[color:var(--color-accent)] rotate-2",
       )}
     >
+      {fresh && (
+        <span
+          className="absolute -top-1 -left-1 w-2 h-2 rounded-full bg-[color:var(--color-green)] ring-2 ring-[color:var(--color-surface)]"
+          title="Neuer Lead — jünger als 24 h"
+          aria-hidden
+        />
+      )}
       <div className="flex items-start gap-1.5">
         <Link
           href={`/leads/${lead.id}`}
@@ -596,6 +649,13 @@ function CardShell({
         >
           {displayName}
         </Link>
+        {brevoEnabled && onMoveStage && (
+          <NumberCheckButton
+            leadId={lead.id}
+            email={lead.email}
+            onSent={setNumberRequestedAt}
+          />
+        )}
         {allTags && onOpenTagPopup && onMoveStage && (
           <LeadCardActionMenu
             lead={lead}
@@ -656,6 +716,15 @@ function CardShell({
               ☎ {lead.phone}
             </a>
           )}
+        </div>
+      )}
+
+      {numberRequestedAt && (
+        <div
+          className="mt-0.5 flex items-center gap-1 text-[10px] text-[color:var(--color-red)]"
+          title="Manuelle Nummer-Prüfung per E-Mail angefragt"
+        >
+          <span aria-hidden>☎</span> Nummer angefragt am {formatCreated(numberRequestedAt)}
         </div>
       )}
 
@@ -734,9 +803,12 @@ function CardShell({
           <span className={cn("w-1.5 h-1.5 rounded-full", dotColor)} />
           {lastActivity ? timeAgo(lastActivity) : timeAgo(lead.updated_at)}
         </span>
-        {lead.value_estimate != null && (
-          <span>{formatEUR(lead.value_estimate)}</span>
-        )}
+        <span className="flex items-center gap-1.5">
+          {lead.value_estimate != null && (
+            <span>{formatEUR(lead.value_estimate)}</span>
+          )}
+          <span title="Eingegangen am">{formatCreated(lead.created_at)}</span>
+        </span>
       </div>
     </div>
   );
@@ -1052,6 +1124,24 @@ function TagPopup({
       </div>
     </div>
   );
+}
+
+// Frische-Markierung: Leads jünger als 24 h bekommen Punkt + grünen Rand.
+// Bewusst clientseitig gegen Date.now() gerechnet (das Board rendert erst nach
+// Mount), damit die Markierung nach Ablauf der 24 h von selbst verschwindet.
+const FRESH_LEAD_MS = 24 * 60 * 60 * 1000;
+
+function isFreshLead(createdAt: string): boolean {
+  return Date.now() - new Date(createdAt).getTime() < FRESH_LEAD_MS;
+}
+
+const CREATED_DATE_FMT = new Intl.DateTimeFormat("de-DE", { day: "2-digit", month: "2-digit" });
+const CREATED_TIME_FMT = new Intl.DateTimeFormat("de-DE", { hour: "2-digit", minute: "2-digit" });
+
+// "12.07. 14:32" — Eingangszeitpunkt ohne Jahr (de-DE setzt den Punkt nach dem Monat).
+function formatCreated(createdAt: string): string {
+  const d = new Date(createdAt);
+  return `${CREATED_DATE_FMT.format(d)} ${CREATED_TIME_FMT.format(d)}`;
 }
 
 function activityDot(iso: string | undefined): string {
