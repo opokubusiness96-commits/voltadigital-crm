@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { getSupabaseServer, getSupabaseServiceRole } from "@/lib/supabase/server";
 import { getActiveOrgId, firstNameOf } from "@/lib/org";
-import { LOST_STAGES, type Stage, type Source, type TagCategoryId } from "@/lib/types";
+import { LOST_STAGES, MAX_CALL_ATTEMPTS, type Stage, type Source, type TagCategoryId } from "@/lib/types";
 import { sendStageEmail, STAGE_EMAIL_MAP, isBrevoEnabledOrg } from "@/lib/brevo";
 
 type LeadUpdate = Partial<{
@@ -143,6 +143,125 @@ export async function requestNumberCheck(leadId: string) {
   revalidatePath("/board");
   revalidatePath(`/leads/${leadId}`);
   return { ok: status === "sent", status, error, sentAt: new Date().toISOString() };
+}
+
+// "−/+"-Buttons auf der Lead-Karte: telefonische Anrufversuche hoch-/runterzählen.
+// delta wird auf ±1 normalisiert und das Ergebnis auf 0..MAX_CALL_ATTEMPTS geklemmt
+// (Minus nimmt Fehlklicks zurück). Rein operativ, org-scoping via RLS. Die UI updatet
+// optimistisch und gleicht auf den Rückgabewert ab.
+export async function adjustCallAttempts(leadId: string, delta: number) {
+  const supabase = await getSupabaseServer();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { ok: false, error: "not authenticated" };
+
+  const { data: lead } = await supabase
+    .from("leads")
+    .select("id, call_attempts")
+    .eq("id", leadId)
+    .maybeSingle();
+  if (!lead) return { ok: false, error: "lead not found" };
+
+  const cur = lead.call_attempts ?? 0;
+  const step = delta >= 0 ? 1 : -1;
+  const next = Math.max(0, Math.min(cur + step, MAX_CALL_ATTEMPTS));
+  // Grenzen erreicht → kein Schreibzugriff nötig.
+  if (next === cur) return { ok: true, callAttempts: next };
+
+  const { error } = await supabase.from("leads").update({ call_attempts: next }).eq("id", leadId);
+  if (error) return { ok: false, error: error.message };
+
+  revalidatePath("/board");
+  revalidatePath(`/leads/${leadId}`);
+  return { ok: true, callAttempts: next };
+}
+
+// "Nicht erreicht – Mail"-Button (erscheint ab MAX_CALL_ATTEMPTS): sendet EINMALIG
+// die No-Show-Recovery-Vorlage (mit Simons Calendly-Buchungslink) an die Lead-Mail.
+// Analog zu requestNumberCheck: Jerome-Org-scoped, best-effort, Fehler geloggt.
+// Doppel-Schutz: (1) Guard auf no_show_email_sent_at hier, (2) email_log-Idempotenz
+// in sendStageEmail (force weggelassen → default false).
+export async function sendNoShowMail(leadId: string) {
+  const supabase = await getSupabaseServer();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { ok: false, status: "unauthenticated", error: "not authenticated" };
+
+  const { data: lead } = await supabase
+    .from("leads")
+    .select("id, org_id, email, email_opt_out, first_name, last_name, name, owner_id, call_attempts, no_show_email_sent_at, calendly_setter_scheduled_at, calendly_erstgespraech_scheduled_at")
+    .eq("id", leadId)
+    .maybeSingle();
+  if (!lead) return { ok: false, status: "not_found", error: "lead not found" };
+
+  // Scoping: nur die Brevo-freigeschaltete Org (Jerome) darf diese Mail auslösen.
+  if (!isBrevoEnabledOrg(lead.org_id)) {
+    return { ok: false, status: "org_not_enabled", error: "org not enabled for brevo" };
+  }
+  if (lead.no_show_email_sent_at) {
+    return { ok: false, status: "already_sent", error: "Mail wurde bereits gesendet" };
+  }
+  if (!lead.email) return { ok: false, status: "no_email", error: "Lead hat keine E-Mail-Adresse" };
+
+  const admin = getSupabaseServiceRole();
+
+  // Setter-Vorname (= Owner) für den Merge-Tag setterName.
+  let setterName: string | null = null;
+  if (lead.owner_id) {
+    const { data: ownerProfile } = await admin
+      .from("profiles")
+      .select("display_name")
+      .eq("id", lead.owner_id)
+      .maybeSingle();
+    setterName = firstNameOf(ownerProfile?.display_name);
+  }
+
+  let status = "failed";
+  let error: string | undefined;
+  try {
+    const res = await sendStageEmail(
+      admin as never,
+      {
+        id: lead.id,
+        org_id: lead.org_id,
+        email: lead.email,
+        email_opt_out: !!lead.email_opt_out,
+        first_name: lead.first_name,
+        last_name: lead.last_name,
+        name: lead.name,
+        setter_name: setterName,
+        calendly_setter_scheduled_at: lead.calendly_setter_scheduled_at,
+        calendly_erstgespraech_scheduled_at: lead.calendly_erstgespraech_scheduled_at,
+      },
+      "no_show_after_calls",
+      { trigger: "manual" },
+    );
+    status = res.status;
+    error = res.error;
+  } catch (err) {
+    console.error("sendNoShowMail failed", err);
+    error = err instanceof Error ? err.message : String(err);
+  }
+
+  // Guard + Marker nur setzen, wenn die Mail real raus ist ODER laut email_log
+  // bereits als gesendet gilt (skipped_dup) — in beiden Fällen hat der Lead die
+  // Mail. Bei Opt-Out / Fehler bleibt der Button aktiv (Setter sieht den Toast).
+  const effectivelySent = status === "sent" || status === "skipped_dup";
+  let sentAt: string | undefined;
+  if (effectivelySent) {
+    sentAt = new Date().toISOString();
+    await supabase.from("leads").update({ no_show_email_sent_at: sentAt }).eq("id", leadId);
+    await supabase.from("activities").insert({
+      org_id: lead.org_id,
+      lead_id: leadId,
+      type: "lead_updated",
+      content: `„Nicht erreicht"-Mail gesendet (nach ${lead.call_attempts ?? 0} Anrufversuchen)`,
+      meta: { action: "no_show_mail_sent", status },
+      created_by: user.id,
+    });
+  }
+
+  revalidatePath("/board");
+  revalidatePath(`/leads/${leadId}`);
+  return { ok: effectivelySent, status, error, sentAt };
 }
 
 export async function addTagToLead(leadId: string, tagId: string) {

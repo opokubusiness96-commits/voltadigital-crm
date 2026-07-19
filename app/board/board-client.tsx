@@ -36,6 +36,7 @@ import { cn, formatEUR, timeAgo } from "@/lib/utils";
 import { updateLead, claimLead, addTagToLead, removeTagFromLead } from "../leads/actions";
 import { LeadCardActionMenu } from "@/components/crm/LeadCardActionMenu";
 import { NumberCheckButton } from "@/components/crm/NumberCheckButton";
+import { CallAttemptsControl } from "@/components/crm/CallAttemptsControl";
 
 type Props = {
   leads: Lead[];
@@ -696,8 +697,8 @@ function CardShell({
         )}
       </div>
 
-      {(lead.email || lead.phone) && (
-        <div className="flex flex-wrap gap-x-2 gap-y-0.5 mt-0.5 text-[11px] text-[color:var(--color-muted)]">
+      {(lead.email || lead.phone || brevoEnabled) && (
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-0.5 text-[11px] text-[color:var(--color-muted)]">
           {lead.email && (
             <a
               href={`mailto:${lead.email}`}
@@ -715,6 +716,15 @@ function CardShell({
             >
               ☎ {lead.phone}
             </a>
+          )}
+          {/* Anrufversuche −/+ direkt hinter der Nummer (Mail-Button klappt bei 4 in eigene Zeile) */}
+          {brevoEnabled && (
+            <CallAttemptsControl
+              leadId={lead.id}
+              email={lead.email}
+              callAttempts={lead.call_attempts}
+              noShowEmailSentAt={lead.no_show_email_sent_at}
+            />
           )}
         </div>
       )}

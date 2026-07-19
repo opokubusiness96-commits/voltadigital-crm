@@ -32,7 +32,11 @@ export type EmailTemplate =
   | "welcome_onboarding"
   | "lost_nurture"
   // Manueller Button "Nummer prüfen" (Button B) — Stage-unabhängig, kein Auto-Trigger.
-  | "wrong_number_check";
+  | "wrong_number_check"
+  // Manueller Button "Nicht erreicht" (ab 4 Anrufversuchen) — nutzt die bestehende
+  // No-Show-Vorlage, aber mit EIGENEM Log-Key, damit die "einmal senden"-Idempotenz
+  // unabhängig vom automatischen setter_no_show-Stage-Mail bleibt.
+  | "no_show_after_calls";
 
 // Brevo-Template-IDs aus env (Numerische ID aus Brevo Dashboard)
 const TEMPLATE_ENV_MAP: Record<EmailTemplate, string> = {
@@ -48,6 +52,9 @@ const TEMPLATE_ENV_MAP: Record<EmailTemplate, string> = {
   welcome_onboarding: "BREVO_TPL_WELCOME_ONBOARDING",
   lost_nurture: "BREVO_TPL_LOST_NURTURE",
   wrong_number_check: "BREVO_TPL_NUMBER_CHECK",
+  // Bewusst dieselbe Brevo-Vorlage wie die No-Show-Recovery (enthält bereits
+  // Simons Setter-Calendly als reschedule/calendarUrl). Kein neues Env nötig.
+  no_show_after_calls: "BREVO_TPL_SETTER_NO_SHOW",
 };
 
 // Templates die TRANSAKTIONAL sind (auch bei Opt-Out senden, weil direkt zum

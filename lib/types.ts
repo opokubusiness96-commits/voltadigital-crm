@@ -95,7 +95,15 @@ export type Lead = {
   calendly_setter_scheduled_at: string | null;
   calendly_erstgespraech_event_uri: string | null;
   calendly_erstgespraech_scheduled_at: string | null;
+  // Manueller Anruf-Versuch-Zähler (0..MAX_CALL_ATTEMPTS) + Guard für die
+  // einmalige "Nicht erreicht"-Mail. Siehe Migration 0016.
+  call_attempts: number;
+  no_show_email_sent_at: string | null;
 };
+
+// Ab diesem Zählerstand erscheint der "Nicht erreicht – Mail"-Button; zugleich
+// die Obergrenze des "+"-Buttons. Single source of truth für Server-Action + UI.
+export const MAX_CALL_ATTEMPTS = 4;
 
 export type Profile = {
   id: string;
