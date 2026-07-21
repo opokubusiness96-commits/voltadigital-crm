@@ -5,7 +5,7 @@ export async function POST() {
   const supabase = await getSupabaseServer();
   await supabase.auth.signOut();
   const res = NextResponse.redirect(
-    new URL("/login", process.env.NEXT_PUBLIC_SITE_URL || "https://crm.jeromederes.com"),
+    new URL("/login", process.env.NEXT_PUBLIC_SITE_URL || "https://crm.voltadigital.agency"),
     { status: 303 },
   );
   // DEV-ONLY: Fake-Session-Cookie entfernen → wieder ausgeloggt

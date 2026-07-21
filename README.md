@@ -1,4 +1,4 @@
-# crm.jeromederes.com
+# VoltaDigital CRM — crm.voltadigital.agency
 
 Internes CRM für Jerome Deres Coaching. Multi-tenant-ready (Org-Scoping per RLS),
 Phase 1 single-org (`jerome`).
@@ -98,26 +98,14 @@ npm run dev
    (`NEXT_PUBLIC_*` als Production+Preview, Secret-Keys nur Production)
 4. **Deploy** klicken → erste Deployment-URL prüfen
 
-## 6. Subdomain crm.jeromederes.com
+## 6. Domain crm.voltadigital.agency
 
-### Vercel
-1. Projekt-Settings → **Domains** → `crm.jeromederes.com` eintragen → **Add**
-2. Vercel zeigt einen DNS-Eintrag an, den du bei Namecheap setzen musst:
-   - **Type**: CNAME
-   - **Host**: `crm`
-   - **Value**: `cname.vercel-dns.com`
-   - **TTL**: Automatic
+`voltadigital.agency` liegt auf **Vercel-Nameservern** — Subdomain direkt im
+Vercel-Projekt anlegen (Settings → **Domains** → `crm.voltadigital.agency`),
+DNS-Eintrag und SSL-Zertifikat entstehen automatisch.
 
-### Namecheap
-1. Login → Domain List → `jeromederes.com` → **Manage** → **Advanced DNS**
-2. **Add New Record**:
-   - Type: `CNAME Record`
-   - Host: `crm`
-   - Value: `cname.vercel-dns.com.` (Punkt am Ende ist okay, Namecheap normalisiert)
-   - TTL: Automatic
-3. **Save**. DNS-Propagation: 1–10 Minuten, max ~30 Min.
-4. Zurück zu Vercel → Refresh → Status muss **Valid Configuration** sein,
-   SSL-Zertifikat wird automatisch ausgestellt.
+> Die frühere Subdomain `crm.jeromederes.com` (Vorgänger-Projekt) ist
+> abgeschaltet — Jerome läuft als Kunden-Org in diesem Multi-Tenant-CRM.
 
 ## 7. Calendly-Webhook
 
@@ -125,7 +113,7 @@ npm run dev
 > Account → Integrations → Webhooks → "+ Webhook subscription"
 
 Eintragen:
-- **Subscription URL**: `https://crm.jeromederes.com/api/webhooks/calendly`
+- **Subscription URL**: `https://crm.voltadigital.agency/api/webhooks/calendly`
 - **Events**: `invitee.created`, `invitee.canceled`
 - **Scope**: User (oder Organization, wenn Jerome auf Org-Level Calendly-Konto hat)
 - **Signing Key generieren** → in `.env.local` und Vercel als
