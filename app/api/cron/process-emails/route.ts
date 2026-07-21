@@ -11,6 +11,8 @@ const VALID_TEMPLATES: Set<EmailTemplate> = new Set([
   "setter_call_reminder_1h",
   "setter_followup",
   "closer_call_confirmation",
+  "closer_call_reminder_24h",
+  "closer_call_reminder_1h",
   "closer_followup",
   "welcome_onboarding",
   "lost_nurture",

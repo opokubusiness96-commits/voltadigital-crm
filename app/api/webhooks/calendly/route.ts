@@ -92,12 +92,18 @@ function extractInvitee(payload: CalendlyPayload["payload"]): CalendlyInvitee {
 function detectStageFromEventName(eventName: string | undefined): Stage | null {
   if (!eventName) return null;
   const n = eventName.toLowerCase();
-  // Setter Call = 15-Minuten Qualifikations-Call (Clarity Call)
-  if (n.includes("clarity") || n.includes("klarheit") || n.includes("setter") || n.includes("15"))
-    return "setter_call_booked";
-  // Klarheitsgespräch / Strategy Call = 60-Minuten Pitch-Call mit Jerome
-  if (n.includes("klarheitsgespraech") || n.includes("klarheitsgespräch") || n.includes("erstgespraech") || n.includes("erstgespräch") || n.includes("strategy") || n.includes("60"))
+  // Naming seit 20.07.2026: Simons Setter-Call = "Erstgespräch",
+  // Jeromes Closer-Call = "Klarheitsgespräch". Closer MUSS zuerst geprüft
+  // werden: "klarheit" ist Teilstring von "klarheitsgespräch" — die alte
+  // Reihenfolge (Setter prüfte "klarheit" zuerst) hat jedes Klarheitsgespräch
+  // als Setter-Call einsortiert. Die DB-Spalten heißen historisch weiter
+  // calendly_erstgespraech_* = Closer-Slot.
+  // Achtung: beide Calendly-Event-Typen dürfen nicht gleich heißen (beide
+  // Slugs sind "discovery-call") — der Name ist das einzige Unterscheidungsmerkmal.
+  if (n.includes("klarheit") || n.includes("strategy") || n.includes("60"))
     return "klarheitsgespraech_booked";
+  if (n.includes("erstgespraech") || n.includes("erstgespräch") || n.includes("discovery") || n.includes("clarity") || n.includes("setter") || n.includes("15"))
+    return "setter_call_booked";
   return null;
 }
 
@@ -445,12 +451,20 @@ export async function POST(req: Request) {
         }
         // Zeitbasierte Reminder (24h/1h) bewusst noch NICHT scharf — nur wenn
         // REMINDERS_ENABLED=true. Sonst bleibt scheduled_emails/Cron ein Stub.
-        if (isSetterStage && scheduledAt && process.env.REMINDERS_ENABLED === "true") {
+        // Gilt für beide Termin-Typen: Erstgespräch (Setter/Simon) und
+        // Klarheitsgespräch (Closer/Jerome) — je mit eigener Brevo-Vorlage.
+        const isCloserStage = stage === "klarheitsgespraech_booked";
+        if ((isSetterStage || isCloserStage) && scheduledAt && process.env.REMINDERS_ENABLED === "true") {
           const scheduled = new Date(scheduledAt).getTime();
-          const reminders: Array<{ template: string; offsetMs: number }> = [
-            { template: "setter_call_reminder_24h", offsetMs: -24 * 3_600_000 },
-            { template: "setter_call_reminder_1h", offsetMs: -3_600_000 },
-          ];
+          const reminders: Array<{ template: string; offsetMs: number }> = isSetterStage
+            ? [
+                { template: "setter_call_reminder_24h", offsetMs: -24 * 3_600_000 },
+                { template: "setter_call_reminder_1h", offsetMs: -3_600_000 },
+              ]
+            : [
+                { template: "closer_call_reminder_24h", offsetMs: -24 * 3_600_000 },
+                { template: "closer_call_reminder_1h", offsetMs: -3_600_000 },
+              ];
           for (const r of reminders) {
             const runAt = new Date(scheduled + r.offsetMs);
             if (runAt.getTime() > Date.now() + 60_000) {

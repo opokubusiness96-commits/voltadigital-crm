@@ -48,6 +48,7 @@ each_account() { # ruft $1 mit (Name, PAT) für jeden gesetzten PAT auf
 do_register() { # $1=Name $2=PAT
   echo "── $1: Subscription anlegen ──"
   me_lookup "$2"
+  echo "  User-URI: $USER_URI   (für die SETTERS-Map im Webhook)"
   local resp http
   resp=$(curl -s -w "\n%{http_code}" -X POST "$API/webhook_subscriptions" \
     -H "Authorization: Bearer $2" -H "Content-Type: application/json" \

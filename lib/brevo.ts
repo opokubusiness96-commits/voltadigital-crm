@@ -27,6 +27,8 @@ export type EmailTemplate =
   | "setter_followup"
   | "setter_no_show_recovery"
   | "closer_call_confirmation"
+  | "closer_call_reminder_24h"
+  | "closer_call_reminder_1h"
   | "closer_followup"
   | "closer_no_show_recovery"
   | "welcome_onboarding"
@@ -47,6 +49,8 @@ const TEMPLATE_ENV_MAP: Record<EmailTemplate, string> = {
   setter_followup: "BREVO_TPL_SETTER_FOLLOWUP",
   setter_no_show_recovery: "BREVO_TPL_SETTER_NO_SHOW",
   closer_call_confirmation: "BREVO_TPL_CLOSER_CONFIRMATION",
+  closer_call_reminder_24h: "BREVO_TPL_CLOSER_REMINDER_24H",
+  closer_call_reminder_1h: "BREVO_TPL_CLOSER_REMINDER_1H",
   closer_followup: "BREVO_TPL_CLOSER_FOLLOWUP",
   closer_no_show_recovery: "BREVO_TPL_CLOSER_NO_SHOW",
   welcome_onboarding: "BREVO_TPL_WELCOME_ONBOARDING",
@@ -64,6 +68,8 @@ const TRANSACTIONAL_TEMPLATES: ReadonlySet<EmailTemplate> = new Set([
   "setter_call_reminder_24h",
   "setter_call_reminder_1h",
   "closer_call_confirmation",
+  "closer_call_reminder_24h",
+  "closer_call_reminder_1h",
   // Manuelle "Nummer prüfen"-Mail ist eine bewusste operative Aktion des Setters.
   "wrong_number_check",
 ]);
