@@ -45,6 +45,9 @@ export async function AppHeader({ email }: { email: string }) {
             <Link href="/downloads" className="text-[color:var(--color-muted)] hover:text-[color:var(--color-text)]">
               Downloads
             </Link>
+            <Link href="/academy" className="text-[color:var(--color-muted)] hover:text-[color:var(--color-text)]">
+              Academy
+            </Link>
           </nav>
         </div>
         <div className="flex items-center gap-4 text-sm">

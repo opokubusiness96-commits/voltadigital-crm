@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSupabaseServiceRole } from "@/lib/supabase/server";
-import { sendStageEmail, type EmailTemplate } from "@/lib/brevo";
+import { sendStageEmail, isBrevoEnabledOrg, type EmailTemplate } from "@/lib/brevo";
 
 export const runtime = "nodejs";
 
@@ -66,6 +66,15 @@ export async function GET(req: Request) {
         .update({ status: "failed", error: "lead not found", sent_at: new Date().toISOString() })
         .eq("id", job.id);
       failed++;
+      continue;
+    }
+
+    // Nur freigeschaltete Orgs (Absender info@jeromederes.com → nur Jerome).
+    if (!isBrevoEnabledOrg(lead.org_id)) {
+      await supabase
+        .from("scheduled_emails")
+        .update({ status: "canceled", error: "org not enabled for brevo", sent_at: new Date().toISOString() })
+        .eq("id", job.id);
       continue;
     }
 
