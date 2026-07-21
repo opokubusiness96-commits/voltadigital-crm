@@ -52,6 +52,7 @@ type CalendlyInvitee = {
 type CalendlyEvent = {
   uri?: string;
   start_time?: string;
+  end_time?: string;
   name?: string;
   event_type?: string;
   // Hosts/Members des Events — in v2 immer mit user_uri pro Member.
@@ -89,21 +90,24 @@ function extractInvitee(payload: CalendlyPayload["payload"]): CalendlyInvitee {
   };
 }
 
-function detectStageFromEventName(eventName: string | undefined): Stage | null {
-  if (!eventName) return null;
-  const n = eventName.toLowerCase();
-  // Naming seit 20.07.2026: Simons Setter-Call = "Erstgespräch",
-  // Jeromes Closer-Call = "Klarheitsgespräch". Closer MUSS zuerst geprüft
+// Stage-Erkennung in drei Prioritätsstufen: eindeutige Namen → Termindauer →
+// schwache Namens-Hinweise. Beide Event-Typen heißen aktuell "Discovery Call"
+// (Simon 15 Min, Jerome 60 Min) — die Dauer ist dann der einzige verlässliche
+// Diskriminator und macht ein Umbenennen in Calendly optional.
+function detectStage(eventName: string | undefined, durationMin: number | null): Stage | null {
+  const n = (eventName ?? "").toLowerCase();
+  // Naming seit 20.07.2026: Setter-Call = "Erstgespräch" (Simon),
+  // Closer-Call = "Klarheitsgespräch" (Jerome). Closer MUSS zuerst geprüft
   // werden: "klarheit" ist Teilstring von "klarheitsgespräch" — die alte
   // Reihenfolge (Setter prüfte "klarheit" zuerst) hat jedes Klarheitsgespräch
   // als Setter-Call einsortiert. Die DB-Spalten heißen historisch weiter
   // calendly_erstgespraech_* = Closer-Slot.
-  // Achtung: beide Calendly-Event-Typen dürfen nicht gleich heißen (beide
-  // Slugs sind "discovery-call") — der Name ist das einzige Unterscheidungsmerkmal.
-  if (n.includes("klarheit") || n.includes("strategy") || n.includes("60"))
-    return "klarheitsgespraech_booked";
-  if (n.includes("erstgespraech") || n.includes("erstgespräch") || n.includes("discovery") || n.includes("clarity") || n.includes("setter") || n.includes("15"))
+  if (n.includes("klarheit") || n.includes("strategy")) return "klarheitsgespraech_booked";
+  if (n.includes("erstgespraech") || n.includes("erstgespräch") || n.includes("setter"))
     return "setter_call_booked";
+  if (durationMin !== null) return durationMin >= 30 ? "klarheitsgespraech_booked" : "setter_call_booked";
+  if (n.includes("60")) return "klarheitsgespraech_booked";
+  if (n.includes("discovery") || n.includes("clarity") || n.includes("15")) return "setter_call_booked";
   return null;
 }
 
@@ -268,15 +272,19 @@ export async function POST(req: Request) {
   const eventName = eventObj?.name;
   const eventUri = eventObj?.uri;
   const scheduledAt = eventObj?.start_time;
+  // Termindauer aus start/end — 15 Min (Setter/Simon) vs. 60 Min (Closer/Jerome).
+  const rawDuration =
+    scheduledAt && eventObj?.end_time
+      ? (new Date(eventObj.end_time).getTime() - new Date(scheduledAt).getTime()) / 60_000
+      : NaN;
+  const durationMin = Number.isFinite(rawDuration) && rawDuration > 0 ? Math.round(rawDuration) : null;
   const setter = findSetter(eventObj);
 
   if (body.event === "invitee.created") {
-    // Setter-Bookings (z.B. Simon's "Discovery Call") matchen die existierende
-    // Name-Detection nicht — daher Fallback: jedes Mapped-Setter-Booking ist
-    // ein Setter-Call. Falls Name-Detection schon trifft (z.B. "15 Min Setter"),
-    // hat die Vorrang und bleibt unangefasst.
+    // Letzter Fallback hinter Name+Dauer: jedes Booking eines gemappten
+    // Setters (SETTERS-Map) ist ein Setter-Call.
     const stage: Stage | null =
-      detectStageFromEventName(eventName) ??
+      detectStage(eventName, durationMin) ??
       (setter ? ("setter_call_booked" as Stage) : null);
     if (!stage) {
       console.warn("Calendly event with unknown type", eventName);
