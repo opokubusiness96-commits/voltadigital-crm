@@ -20,6 +20,9 @@ export const runtime = "nodejs";
 // email_log (template = nurture_booking_<n>), daraus ergeben sich Zähler und
 // Abstand. Scharf nur mit NURTURE_ENABLED=true.
 const LOG_PREFIX = "nurture_booking_";
+// Sofort-Einladung bei Lead-Anlage (lib/brevo stageEntryTemplate) — zählt als
+// erster Buchungs-Touch, damit der Drip nicht direkt danach nochmal sendet.
+const INVITE_TEMPLATE = "setter_booking_invitation";
 
 export async function GET(req: Request) {
   // Vercel Cron sendet "Authorization: Bearer ${CRON_SECRET}"
@@ -91,22 +94,26 @@ export async function GET(req: Request) {
 
     // sent UND failed zählen: sonst würde eine dauerhaft an Brevo scheiternde
     // Adresse (4xx) täglich neu angemailt (failed erhöht count/sent_at nie) und
-    // liefe nie in maxSends. Jeder Versuch = eine Zeile → count = Versuchszahl.
-    // email_log.sent_at ist auch bei failed gesetzt (Schema-Default now()).
+    // liefe nie in maxSends. email_log.sent_at ist auch bei failed gesetzt.
+    // Die Sofort-Einladung bei Lead-Anlage (setter_booking_invitation) zählt als
+    // erster Touch mit — sonst käme direkt nach ihr die erste Drip-Mail.
     const { data: logs } = await supabase
       .from("email_log")
-      .select("sent_at")
+      .select("template, sent_at")
       .eq("lead_id", lead.id)
-      .like("template", `${LOG_PREFIX}%`)
+      .or(`template.eq.${INVITE_TEMPLATE},template.like.${LOG_PREFIX}%`)
       .in("status", ["sent", "failed"])
       .order("sent_at", { ascending: false });
 
-    const count = logs?.length ?? 0;
-    if (count >= maxSends) {
+    const touches = logs ?? [];
+    const totalTouches = touches.length;
+    // Suffix nummeriert nur die Drip-Mails; die Sofort-Einladung ist Touch 0.
+    const nurtureCount = touches.filter((t) => (t.template as string).startsWith(LOG_PREFIX)).length;
+    if (totalTouches >= maxSends) {
       skippedMax++;
       continue;
     }
-    if (count > 0 && Date.now() - new Date(logs![0].sent_at).getTime() < intervalMs) {
+    if (totalTouches > 0 && Date.now() - new Date(touches[0].sent_at).getTime() < intervalMs) {
       skippedRecent++;
       continue;
     }
@@ -131,11 +138,11 @@ export async function GET(req: Request) {
     const { error: logErr } = await supabase.from("email_log").insert({
       org_id: lead.org_id,
       lead_id: lead.id,
-      template: `${LOG_PREFIX}${count + 1}`,
+      template: `${LOG_PREFIX}${nurtureCount + 1}`,
       to_email: lead.email,
       status: result.ok ? "sent" : "failed",
       ...(result.ok ? { brevo_message_id: result.messageId } : { error: result.error }),
-      meta: { trigger: "nurture", seq: count + 1 },
+      meta: { trigger: "nurture", seq: nurtureCount + 1 },
     });
     // Der gesamte Drip-Zustand (Zähler, Abstand) lebt in dieser Zeile. Schlägt der
     // Insert nach erfolgreichem Versand fehl, würde der nächste Lauf erneut senden

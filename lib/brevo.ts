@@ -31,6 +31,10 @@ export type EmailTemplate =
   | "closer_call_reminder_1h"
   | "closer_followup"
   | "closer_no_show_recovery"
+  // Buchungs-Einladung, wenn ein Lead OHNE Calendly-Termin in Stage 1 landet
+  // (manuell im CRM angelegt / per Claude/CSV importiert) — gibt ihm den Weg
+  // zu Simons Kalender. Nutzt dieselbe Brevo-Vorlage wie der Nurture-Drip.
+  | "setter_booking_invitation"
   | "welcome_onboarding"
   | "lost_nurture"
   // Manueller Button "Nummer prüfen" (Button B) — Stage-unabhängig, kein Auto-Trigger.
@@ -53,6 +57,7 @@ const TEMPLATE_ENV_MAP: Record<EmailTemplate, string> = {
   closer_call_reminder_1h: "BREVO_TPL_CLOSER_REMINDER_1H",
   closer_followup: "BREVO_TPL_CLOSER_FOLLOWUP",
   closer_no_show_recovery: "BREVO_TPL_CLOSER_NO_SHOW",
+  setter_booking_invitation: "BREVO_TPL_NURTURE_BOOKING",
   welcome_onboarding: "BREVO_TPL_WELCOME_ONBOARDING",
   lost_nurture: "BREVO_TPL_LOST_NURTURE",
   wrong_number_check: "BREVO_TPL_NUMBER_CHECK",
@@ -106,6 +111,20 @@ export const STAGE_EMAIL_MAP: Partial<Record<Stage, EmailTemplate>> = {
   setter_no_show: "setter_no_show_recovery",
   klarheitsgespraech_booked: "closer_call_confirmation",
 };
+
+// Welche Mail feuert, wenn ein Lead in eine Stage EINTRITT? Wie STAGE_EMAIL_MAP,
+// aber Stage 1 verzweigt nach Termin: MIT Calendly-Termin → Bestätigung, OHNE
+// Termin (manuell/CSV/Claude reingekommen) → Buchungs-Einladung mit Simons Link.
+// So bekommt auch ein nicht über Calendly angelegter Lead den Weg zum Termin.
+export function stageEntryTemplate(
+  stage: Stage,
+  opts: { hasSetterAppt: boolean },
+): EmailTemplate | undefined {
+  if (stage === "setter_call_booked") {
+    return opts.hasSetterAppt ? "setter_call_confirmation" : "setter_booking_invitation";
+  }
+  return STAGE_EMAIL_MAP[stage];
+}
 
 export type LeadForEmail = {
   id: string;

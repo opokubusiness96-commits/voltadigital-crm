@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import { getSupabaseServer, getSupabaseServiceRole } from "@/lib/supabase/server";
 import { getActiveOrgId, firstNameOf } from "@/lib/org";
 import { LOST_STAGES, MAX_CALL_ATTEMPTS, type Stage, type Source, type TagCategoryId } from "@/lib/types";
-import { sendStageEmail, STAGE_EMAIL_MAP, isBrevoEnabledOrg } from "@/lib/brevo";
+import { sendStageEmail, STAGE_EMAIL_MAP, stageEntryTemplate, isBrevoEnabledOrg } from "@/lib/brevo";
 
 type LeadUpdate = Partial<{
   stage: Stage;
@@ -40,7 +40,10 @@ export async function updateLead(id: string, patch: LeadUpdate) {
   // Stage-Transition → Brevo Email feuern (best-effort, Fehler nicht propagieren)
   // Nur für freigeschaltete Orgs (Absender info@jeromederes.com → nur Jerome).
   if (before && patch.stage && patch.stage !== before.stage && isBrevoEnabledOrg(before.org_id)) {
-    const template = STAGE_EMAIL_MAP[patch.stage];
+    // Stage 1 ohne Calendly-Termin → Buchungs-Einladung statt Bestätigung.
+    const template = stageEntryTemplate(patch.stage, {
+      hasSetterAppt: !!before.calendly_setter_scheduled_at,
+    });
     if (template && before.email) {
       try {
         const admin = getSupabaseServiceRole();
@@ -580,6 +583,32 @@ export async function createLead(input: {
     content: "Lead manuell angelegt",
     created_by: user.id,
   });
+
+  // Manuell angelegte Leads kommen ohne Calendly-Termin rein → sofort die
+  // Buchungs-Einladung mit Simons Kalender schicken (best-effort; nur für die
+  // Brevo-freigeschaltete Org, kein Opt-out). So bekommt auch ein nicht über
+  // Calendly reingekommener Lead direkt den Weg zum Erstgespräch.
+  if (input.email && isBrevoEnabledOrg(orgId)) {
+    const template = stageEntryTemplate("setter_call_booked", { hasSetterAppt: false });
+    if (template) {
+      try {
+        const admin = getSupabaseServiceRole();
+        await sendStageEmail(admin as never, {
+          id: data.id,
+          org_id: orgId,
+          email: input.email,
+          email_opt_out: false,
+          first_name: null,
+          last_name: null,
+          name: input.name,
+          calendly_setter_scheduled_at: null,
+          calendly_erstgespraech_scheduled_at: null,
+        } as never, template);
+      } catch (err) {
+        console.error("createLead: booking invitation failed", err);
+      }
+    }
+  }
 
   revalidatePath("/");
   redirect(`/leads/${data.id}`);
