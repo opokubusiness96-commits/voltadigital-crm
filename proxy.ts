@@ -32,10 +32,14 @@ export async function proxy(request: NextRequest) {
     return NextResponse.next();
   }
 
-  // Webhooks, Auth-Endpoints und statische Assets: kein Auth-Check
+  // Webhooks, Auth-Endpoints, Cron-Jobs und statische Assets: kein Session-Check.
+  // /api/cron MUSS hier durch, sonst fängt der Auth-Proxy die Vercel-Cron-Aufrufe
+  // ab (Cron sendet keinen Session-Cookie → Redirect auf /login → Job läuft nie).
+  // Die Cron-Routes prüfen selbst "Authorization: Bearer $CRON_SECRET".
   if (
     pathname.startsWith("/api/webhooks/") ||
     pathname.startsWith("/api/auth/") ||
+    pathname.startsWith("/api/cron/") ||
     pathname.startsWith("/_next/") ||
     pathname === "/favicon.ico"
   ) {
