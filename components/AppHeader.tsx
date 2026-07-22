@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Trash2 } from "lucide-react";
 import { getWorkspace } from "@/lib/org";
 import { OrgSwitcher } from "@/components/OrgSwitcher";
+import { LeadNotifications } from "@/components/LeadNotifications";
 
 export async function AppHeader({ email }: { email: string }) {
   // Rechnungen bleibt Agentur-only; Dashboard/Aufgaben/Kalender gibt es für
@@ -51,6 +52,7 @@ export async function AppHeader({ email }: { email: string }) {
           </nav>
         </div>
         <div className="flex items-center gap-4 text-sm">
+          <LeadNotifications orgId={ws?.activeOrgId ?? null} />
           <Link
             href="/papierkorb"
             title="Papierkorb"
