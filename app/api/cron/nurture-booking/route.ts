@@ -28,6 +28,17 @@ const INVITE_TEMPLATE = "setter_booking_invitation";
 // die erste Drip-Mail.
 const REACTIVATION_PREFIX = "reactivation_";
 
+// Eskalierende Follow-up-Sequenz: enge Abstände am Anfang (Intention nach dem
+// Eintragen am höchsten), dann auslaufend — jede Stufe mit eigenem Text/Winkel,
+// aber immer Simons Buchungslink. afterDays = Abstand zum vorherigen Touch.
+// maxSends ergibt sich aus der Länge; NURTURE_MAX_SENDS kann kürzen.
+const NURTURE_SEQUENCE: Array<{ afterDays: number; tplEnv: string }> = [
+  { afterDays: 2, tplEnv: "BREVO_TPL_NURTURE_1" }, // Erinnerung
+  { afterDays: 3, tplEnv: "BREVO_TPL_NURTURE_2" }, // Was im Call passiert
+  { afterDays: 5, tplEnv: "BREVO_TPL_NURTURE_3" }, // sanfte Dringlichkeit
+  { afterDays: 7, tplEnv: "BREVO_TPL_NURTURE_4" }, // Breakup / letzte Mail
+];
+
 export async function GET(req: Request) {
   // Vercel Cron sendet "Authorization: Bearer ${CRON_SECRET}"
   const authHeader = req.headers.get("authorization") || "";
@@ -40,18 +51,21 @@ export async function GET(req: Request) {
     return NextResponse.json({ ok: true, skipped: "nurture disabled" });
   }
 
-  const tplId = parseInt(process.env.BREVO_TPL_NURTURE_BOOKING || "", 10);
-  if (!Number.isFinite(tplId)) {
+  // Template-IDs der Sequenz-Stufen auflösen; fehlt eine, wird die Sequenz dort
+  // gekappt (lieber kürzere Sequenz als ein 500, das den ganzen Lauf abbricht).
+  const steps = NURTURE_SEQUENCE.map((s) => ({
+    afterDays: s.afterDays,
+    tplId: parseInt(process.env[s.tplEnv] || "", 10),
+  })).filter((s) => Number.isFinite(s.tplId));
+  if (steps.length === 0) {
     return NextResponse.json(
-      { ok: false, error: "BREVO_TPL_NURTURE_BOOKING missing" },
+      { ok: false, error: "no BREVO_TPL_NURTURE_* configured" },
       { status: 500 },
     );
   }
-
-  const maxSends = Math.max(1, parseInt(process.env.NURTURE_MAX_SENDS || "5", 10) || 5);
-  // 2 Tage minus 1 h Toleranz, damit ein täglicher Cron nicht wegen weniger
-  // Minuten Versatz einen ganzen Tag überspringt.
-  const intervalMs = 2 * 24 * 3_600_000 - 3_600_000;
+  // NURTURE_MAX_SENDS kann die Sequenz zusätzlich kürzen (nicht verlängern).
+  const cap = parseInt(process.env.NURTURE_MAX_SENDS || "", 10);
+  const maxSends = Number.isFinite(cap) ? Math.min(steps.length, Math.max(1, cap)) : steps.length;
 
   const supabase = getSupabaseServiceRole();
 
@@ -113,13 +127,18 @@ export async function GET(req: Request) {
 
     const touches = logs ?? [];
     const totalTouches = touches.length;
-    // Suffix nummeriert nur die Drip-Mails; die Sofort-Einladung ist Touch 0.
+    // nurtureCount = bereits gesendete Drip-Mails → bestimmt die nächste Stufe.
+    // Sofort-Einladung + Reaktivierung zählen NICHT als Stufe, aber als Touch
+    // fürs Timing (touches[0] = letzter beliebiger Buchungs-Touch).
     const nurtureCount = touches.filter((t) => (t.template as string).startsWith(LOG_PREFIX)).length;
-    if (totalTouches >= maxSends) {
+    if (nurtureCount >= maxSends) {
       skippedMax++;
       continue;
     }
-    if (totalTouches > 0 && Date.now() - new Date(touches[0].sent_at).getTime() < intervalMs) {
+    const step = steps[nurtureCount];
+    // Abstand dieser Stufe zum letzten Touch (eskalierend), −1 h Cron-Toleranz.
+    const stepIntervalMs = step.afterDays * 24 * 3_600_000 - 3_600_000;
+    if (totalTouches > 0 && Date.now() - new Date(touches[0].sent_at).getTime() < stepIntervalMs) {
       skippedRecent++;
       continue;
     }
@@ -134,7 +153,7 @@ export async function GET(req: Request) {
           email: lead.email,
           name: [lead.first_name, lead.last_name].filter(Boolean).join(" ") || undefined,
         },
-        templateId: tplId,
+        templateId: step.tplId,
         params: templateParams(lead as LeadForEmail),
       });
     } catch (e) {
