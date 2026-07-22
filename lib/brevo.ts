@@ -83,6 +83,20 @@ const CONFIRMATION_DATE_FIELD: Partial<Record<EmailTemplate, keyof LeadForEmail>
   closer_call_confirmation: "calendly_erstgespraech_scheduled_at",
 };
 
+// Termin-gebundene Templates deduplizieren PRO TERMIN, nicht pro Lead: der
+// email_log-Schlüssel bekommt den Termin-Zeitpunkt als Suffix. Sonst würde nach
+// einem Reschedule (Absage + Neubuchung) die Bestätigung/der Reminder für den
+// NEUEN Termin als skipped_dup verschluckt — genau die Show-Rate-Mails.
+// Doppelte Webhook-Zustellungen desselben Termins bleiben dedupliziert.
+const APPOINTMENT_FIELD: Partial<Record<EmailTemplate, keyof LeadForEmail>> = {
+  setter_call_confirmation: "calendly_setter_scheduled_at",
+  setter_call_reminder_24h: "calendly_setter_scheduled_at",
+  setter_call_reminder_1h: "calendly_setter_scheduled_at",
+  closer_call_confirmation: "calendly_erstgespraech_scheduled_at",
+  closer_call_reminder_24h: "calendly_erstgespraech_scheduled_at",
+  closer_call_reminder_1h: "calendly_erstgespraech_scheduled_at",
+};
+
 // Mapping Stage-Transition → Email-Template. Bewusst NUR die drei von der Spec
 // freigegebenen Stages (A): alle anderen Stages → keine Mail. won /
 // klarheitsgespraech_no_show / klarheitsgespraech_lost sind absichtlich NICHT
@@ -149,11 +163,15 @@ function fmtFull(iso: string | null | undefined): string {
 // und Reschedule-Link (Jerome vs. Simon).
 const CLOSER_TEMPLATES: ReadonlySet<EmailTemplate> = new Set([
   "closer_call_confirmation",
+  "closer_call_reminder_24h",
+  "closer_call_reminder_1h",
   "closer_followup",
   "closer_no_show_recovery",
 ]);
 
-function templateParams(lead: LeadForEmail, template?: EmailTemplate): Record<string, unknown> {
+// Exportiert, weil der Nurture-Cron (app/api/cron/nurture-booking) direkt über
+// sendBrevoEmail versendet und dieselben Merge-Tags braucht.
+export function templateParams(lead: LeadForEmail, template?: EmailTemplate): Record<string, unknown> {
   const firstName = lead.first_name || lead.name?.split(" ")[0] || "";
   const lastName = lead.last_name || lead.name?.split(" ").slice(1).join(" ") || "";
   const isCloser = !!template && CLOSER_TEMPLATES.has(template);
@@ -243,12 +261,17 @@ export async function sendStageEmail(
     return { ok: false, status: "skipped_no_date" };
   }
 
+  // Log-/Dedup-Schlüssel: termin-gebundene Templates pro Termin (siehe APPOINTMENT_FIELD).
+  const apptField = APPOINTMENT_FIELD[template];
+  const apptIso = apptField ? (lead[apptField] as string | null | undefined) : null;
+  const logTemplate = apptIso ? `${template}@${apptIso}` : template;
+
   // Opt-Out prüfen — Transaktionale Templates dürfen weiter
   if (lead.email_opt_out && !TRANSACTIONAL_TEMPLATES.has(template)) {
     await (supabase.from("email_log") as { insert: (r: Record<string, unknown>) => Promise<unknown> }).insert({
       org_id: lead.org_id,
       lead_id: lead.id,
-      template,
+      template: logTemplate,
       to_email: lead.email,
       status: "skipped_optout",
       meta: { trigger },
@@ -272,7 +295,7 @@ export async function sendStageEmail(
       })
       .select("id")
       .eq("lead_id", lead.id)
-      .eq("template", template)
+      .eq("template", logTemplate)
       .eq("status", "sent")
       .limit(1);
     if (existing.data && existing.data.length > 0) {
@@ -285,7 +308,7 @@ export async function sendStageEmail(
     await (supabase.from("email_log") as { insert: (r: Record<string, unknown>) => Promise<unknown> }).insert({
       org_id: lead.org_id,
       lead_id: lead.id,
-      template,
+      template: logTemplate,
       to_email: lead.email,
       status: "failed",
       error: `template id env missing: ${TEMPLATE_ENV_MAP[template]}`,
@@ -304,7 +327,7 @@ export async function sendStageEmail(
     await (supabase.from("email_log") as { insert: (r: Record<string, unknown>) => Promise<unknown> }).insert({
       org_id: lead.org_id,
       lead_id: lead.id,
-      template,
+      template: logTemplate,
       to_email: lead.email,
       status: "failed",
       error: result.error,

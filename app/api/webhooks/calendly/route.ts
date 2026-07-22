@@ -171,7 +171,13 @@ const SETTERS: Record<string, { calendly_user_uri: string; profile_email: string
     calendly_user_uri: "https://api.calendly.com/users/bc4deb97-377b-41cf-a34d-7d411388768e",
     profile_email: "Simon.damm007@gmail.com",
   },
-  // "jerome-deres": { calendly_user_uri: "...", profile_email: "..." },
+  // Jerome führt das Klarheitsgespräch (Closer). Sein Booking wird über die
+  // Event-Dauer (60 Min) als klarheitsgespraech_booked erkannt; der Map-Eintrag
+  // setzt zusätzlich owner_id auf Jeromes CRM-Profil.
+  "jeromederes-info": {
+    calendly_user_uri: "https://api.calendly.com/users/0ea62490-b2b2-432b-92b8-006a37ab0e45",
+    profile_email: "info@jeromederes.com",
+  },
   // "heidi-yeboah": { calendly_user_uri: "...", profile_email: "..." },
 };
 
@@ -495,16 +501,23 @@ export async function POST(req: Request) {
     // Lead identifizieren: bevorzugt über event_uri, fallback Email
     let leadId: string | null = null;
 
+    // Welches Termin-Feld gehört zum stornierten Event? Über den event_uri, damit
+    // ein Setter-Storno nicht den Closer-Termin (oder umgekehrt) anfasst.
+    let canceledField: "setter" | "erstgespraech" | null = null;
     if (eventUri) {
       const { data: byUri } = await supabase
         .from("leads")
-        .select("id")
+        .select("id, calendly_setter_event_uri, calendly_erstgespraech_event_uri")
         .eq("org_id", orgId)
         .or(
           `calendly_setter_event_uri.eq.${eventUri},calendly_erstgespraech_event_uri.eq.${eventUri}`,
         )
         .maybeSingle();
-      if (byUri) leadId = byUri.id;
+      if (byUri) {
+        leadId = byUri.id;
+        if (byUri.calendly_setter_event_uri === eventUri) canceledField = "setter";
+        else if (byUri.calendly_erstgespraech_event_uri === eventUri) canceledField = "erstgespraech";
+      }
     }
 
     if (!leadId && invitee?.email) {
@@ -532,6 +545,27 @@ export async function POST(req: Request) {
           cancellation: body.payload?.cancellation ?? null,
         },
       });
+
+      // Termin-Zeitpunkt + event_uri des stornierten Termins zurücksetzen —
+      // sonst zeigt der Kalender einen Phantom-Termin und ein Lead ohne
+      // Neubuchung fällt nie in den Nurture-Drip (der auf scheduled_at IS NULL
+      // filtert) zurück. RACE-SICHER: nur nullen, wenn der gespeicherte
+      // event_uri noch der stornierte ist. Bei einem Reschedule kann
+      // invitee.created (neuer Termin) VOR invitee.canceled (alter) ankommen;
+      // dann steht dort bereits der neue event_uri und wir fassen ihn nicht an.
+      if (canceledField === "setter") {
+        await supabase
+          .from("leads")
+          .update({ calendly_setter_scheduled_at: null, calendly_setter_event_uri: null })
+          .eq("id", leadId)
+          .eq("calendly_setter_event_uri", eventUri!);
+      } else if (canceledField === "erstgespraech") {
+        await supabase
+          .from("leads")
+          .update({ calendly_erstgespraech_scheduled_at: null, calendly_erstgespraech_event_uri: null })
+          .eq("id", leadId)
+          .eq("calendly_erstgespraech_event_uri", eventUri!);
+      }
 
       // Pending Reminders für diesen Lead canceln
       await supabase
