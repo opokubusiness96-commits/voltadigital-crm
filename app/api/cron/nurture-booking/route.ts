@@ -23,6 +23,10 @@ const LOG_PREFIX = "nurture_booking_";
 // Sofort-Einladung bei Lead-Anlage (lib/brevo stageEntryTemplate) — zählt als
 // erster Buchungs-Touch, damit der Drip nicht direkt danach nochmal sendet.
 const INVITE_TEMPLATE = "setter_booking_invitation";
+// Einmalige Reaktivierungs-Broadcasts (email_log-Key reactivation_*) zählen
+// ebenfalls als Buchungs-Touch — sonst käme direkt nach einem Broadcast schon
+// die erste Drip-Mail.
+const REACTIVATION_PREFIX = "reactivation_";
 
 export async function GET(req: Request) {
   // Vercel Cron sendet "Authorization: Bearer ${CRON_SECRET}"
@@ -101,7 +105,9 @@ export async function GET(req: Request) {
       .from("email_log")
       .select("template, sent_at")
       .eq("lead_id", lead.id)
-      .or(`template.eq.${INVITE_TEMPLATE},template.like.${LOG_PREFIX}%`)
+      .or(
+        `template.eq.${INVITE_TEMPLATE},template.like.${LOG_PREFIX}%,template.like.${REACTIVATION_PREFIX}%`,
+      )
       .in("status", ["sent", "failed"])
       .order("sent_at", { ascending: false });
 
