@@ -11,6 +11,7 @@ import {
   type CheckoutInput,
   type FieldErrors,
 } from "@/lib/checkout";
+import { LegalLink } from "./legal";
 import { submitCheckout } from "./actions";
 
 const EMPTY: CheckoutInput = {
@@ -274,7 +275,7 @@ export function CheckoutForm() {
           error={errors.acceptTerms}
           onChange={(v) => set("acceptTerms", v)}
         >
-          Ich akzeptiere die AGB und habe die Datenschutzerklärung gelesen.
+          Ich akzeptiere die <LegalLink doc="agb" /> und habe die <LegalLink doc="privacy" /> gelesen.
         </Checkbox>
         <Checkbox
           checked={values.acceptWithdrawal}
@@ -282,8 +283,8 @@ export function CheckoutForm() {
           error={errors.acceptWithdrawal}
           onChange={(v) => set("acceptWithdrawal", v)}
         >
-          Ich habe die Widerrufsbelehrung zur Kenntnis genommen. Mir ist bekannt, dass das Coaching auf meinen
-          ausdrücklichen Wunsch schon vor Ablauf der Widerrufsfrist beginnen kann.
+          Ich habe die <LegalLink doc="withdrawal" /> zur Kenntnis genommen. Mir ist bekannt, dass das
+          Coaching auf meinen ausdrücklichen Wunsch schon vor Ablauf der Widerrufsfrist beginnen kann.
         </Checkbox>
 
         {formError && (

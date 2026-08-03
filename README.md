@@ -143,14 +143,24 @@ Jerome Deres, 1.000 € brutto** (inkl. 19 % MwSt: 840,34 € netto + 159,66 €
 entspricht 200 € pro Session). Zahlbar als Einmalzahlung oder in 2 Raten à 500 €
 — **ohne Ratenaufschlag**, die Summe bleibt 1.000 €.
 
-**Setup:**
+**Setup — in dieser Reihenfolge, bevor die URL an Kunden geht:**
 
-1. Migration `supabase/migrations/0017_checkout_orders.sql` im SQL Editor ausführen
-2. Optional: `CHECKOUT_BANK_*` in der Env setzen → die Danke-Seite zeigt die
-   Bankdaten direkt an. Ohne IBAN steht dort nur "Zahlungsdaten kommen mit der
-   Rechnung per E-Mail".
-3. Optional: `BREVO_TPL_CHECKOUT_CONFIRMATION` auf eine Brevo-Template-ID setzen
+1. **Migration** `supabase/migrations/0017_checkout_orders.sql` im SQL Editor
+   ausführen. Ohne die Tabelle scheitert jede Bestellung.
+2. **Rechtstexte verlinken**: `NEXT_PUBLIC_LEGAL_AGB_URL`,
+   `NEXT_PUBLIC_LEGAL_PRIVACY_URL`, `NEXT_PUBLIC_LEGAL_WITHDRAWAL_URL`,
+   `NEXT_PUBLIC_LEGAL_IMPRINT_URL`. Nicht gesetzte Links erscheinen als reiner
+   Text — ein Verkauf an Verbraucher ohne diese Dokumente ist nicht zulässig.
+3. **Verkaufstexte prüfen**: Name, Beschreibung und Leistungen in
+   `lib/checkout.ts` sind Platzhalter und gehören durch die echten ersetzt.
+4. Optional: `CHECKOUT_BANK_*` setzen → die Danke-Seite zeigt die Bankdaten
+   direkt an. Ohne IBAN steht dort nur "Zahlungsdaten kommen mit der Rechnung
+   per E-Mail".
+5. Optional: `BREVO_TPL_CHECKOUT_CONFIRMATION` auf eine Brevo-Template-ID setzen
    → automatische Bestellbestätigung. Ohne ID wird keine Mail verschickt.
+
+Nach dem Deploy erreichbar unter `https://crm.voltadigital.agency/checkout`
+(bzw. unter der Domain, die auf das Vercel-Projekt zeigt).
 
 **Was beim Absenden passiert** (`app/checkout/actions.ts`):
 

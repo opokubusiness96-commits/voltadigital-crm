@@ -91,6 +91,30 @@ export function pricePerSession(offer: CheckoutOffer = CHECKOUT_OFFER): number {
   return Math.round((offer.price / offer.sessionCount) * 100) / 100;
 }
 
+// ── Rechtstexte ──────────────────────────────────────────────────────────────
+// Ein Checkout, der an Verbraucher verkauft, muss AGB, Datenschutzerklärung,
+// Widerrufsbelehrung und Impressum verlinken. Die URLs kommen aus der Env, damit
+// sie auf die bestehenden Seiten (z. B. jeromederes.com/agb) zeigen können.
+// NEXT_PUBLIC_*, weil das Formular eine Client Component ist.
+// Nicht gesetzte Links werden als reiner Text gerendert — lieber kein Link als
+// ein toter Link.
+
+export type LegalDoc = "agb" | "privacy" | "withdrawal" | "imprint";
+
+export const LEGAL_LABEL: Record<LegalDoc, string> = {
+  agb: "AGB",
+  privacy: "Datenschutzerklärung",
+  withdrawal: "Widerrufsbelehrung",
+  imprint: "Impressum",
+};
+
+export const LEGAL_URL: Record<LegalDoc, string | null> = {
+  agb: process.env.NEXT_PUBLIC_LEGAL_AGB_URL || null,
+  privacy: process.env.NEXT_PUBLIC_LEGAL_PRIVACY_URL || null,
+  withdrawal: process.env.NEXT_PUBLIC_LEGAL_WITHDRAWAL_URL || null,
+  imprint: process.env.NEXT_PUBLIC_LEGAL_IMPRINT_URL || null,
+};
+
 /** Netto/MwSt-Aufteilung eines Brutto-Betrags (kaufmännisch auf Cent gerundet). */
 export function vatSplit(gross: number, rate: number): { net: number; vat: number } {
   const net = Math.round((gross / (1 + rate)) * 100) / 100;

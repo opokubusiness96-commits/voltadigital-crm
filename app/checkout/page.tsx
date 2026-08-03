@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Check, Clock, ShieldCheck, Video } from "lucide-react";
 import { CHECKOUT_OFFER, formatPrice, pricePerSession, vatSplit } from "@/lib/checkout";
 import { CheckoutForm } from "./checkout-form";
+import { LegalFooter } from "./legal";
 
 // Öffentliche Seite — kein Login (siehe PUBLIC_PATHS in proxy.ts).
 export const metadata: Metadata = {
@@ -98,6 +99,8 @@ export default function CheckoutPage() {
           </div>
         </aside>
       </div>
+
+      <LegalFooter />
     </main>
   );
 }

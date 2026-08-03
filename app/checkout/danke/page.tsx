@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { CheckCircle2 } from "lucide-react";
 import { CHECKOUT_OFFER, formatPrice } from "@/lib/checkout";
+import { LegalFooter } from "../legal";
 
 export const metadata: Metadata = {
   title: "Bestellung eingegangen — Jerome Deres Coaching",
@@ -90,6 +91,8 @@ export default async function CheckoutDankePage({
           info@jeromederes.com
         </Link>
       </p>
+
+      <LegalFooter />
     </main>
   );
 }
