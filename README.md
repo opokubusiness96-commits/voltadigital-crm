@@ -138,9 +138,10 @@ der Webhook übernimmt sie automatisch in die `leads` Tabelle.
 
 ## 9. Checkout-Seite `/checkout`
 
-Öffentliche Verkaufsseite für **Jerome Deres Coaching · 1.000 € brutto**
-(inkl. 19 % MwSt: 840,34 € netto + 159,66 € MwSt). Zahlbar als Einmalzahlung
-oder in 2 Raten à 500 € — **ohne Ratenaufschlag**, die Summe bleibt 1.000 €.
+Öffentliche Verkaufsseite für das **5er-Paket 1:1 Sessions — 5 × 60 Minuten mit
+Jerome Deres, 1.000 € brutto** (inkl. 19 % MwSt: 840,34 € netto + 159,66 € MwSt,
+entspricht 200 € pro Session). Zahlbar als Einmalzahlung oder in 2 Raten à 500 €
+— **ohne Ratenaufschlag**, die Summe bleibt 1.000 €.
 
 **Setup:**
 
@@ -193,7 +194,7 @@ app/
     [id]/page.tsx             # Lead-Detail
     [id]/lead-editor.tsx      # Inline-Edit Client Component
     [id]/note-form.tsx        # Notiz-Eingabe
-  checkout/                   # ÖFFENTLICHE Checkout-Seite (1.000 €)
+  checkout/                   # ÖFFENTLICHE Checkout-Seite (5 × 60 Min, 1.000 €)
     page.tsx                  # Angebot + Bestellübersicht
     checkout-form.tsx         # Formular (Client Component)
     actions.ts                # submitCheckout → Bestellung + Lead

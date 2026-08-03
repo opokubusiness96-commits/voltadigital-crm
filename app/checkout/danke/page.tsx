@@ -16,7 +16,8 @@ function bankDetails() {
   const iban = process.env.CHECKOUT_BANK_IBAN?.trim();
   if (!iban) return null;
   return {
-    holder: process.env.CHECKOUT_BANK_HOLDER?.trim() || CHECKOUT_OFFER.name,
+    // Kein Fallback: ein geratener Kontoinhaber wäre schlimmer als keine Zeile.
+    holder: process.env.CHECKOUT_BANK_HOLDER?.trim() || null,
     iban,
     bic: process.env.CHECKOUT_BANK_BIC?.trim() || null,
     bank: process.env.CHECKOUT_BANK_NAME?.trim() || null,
@@ -58,15 +59,18 @@ export default async function CheckoutDankePage({
 
       <div className="mt-6 rounded-xl border border-[color:var(--color-border)] bg-[color:var(--color-surface)] p-5">
         <h2 className="text-base font-semibold tracking-tight">Deine Bestellung</h2>
-        <div className="mt-3 flex items-baseline justify-between gap-3 text-sm">
-          <span className="text-[color:var(--color-muted)]">{CHECKOUT_OFFER.name}</span>
-          <span className="font-semibold tabular-nums">{formatPrice(CHECKOUT_OFFER.price)}</span>
+        <div className="mt-3 flex items-baseline justify-between gap-4 text-sm">
+          <span>
+            {CHECKOUT_OFFER.name}
+            <span className="block text-xs text-[color:var(--color-muted)]">{CHECKOUT_OFFER.tagline}</span>
+          </span>
+          <span className="font-semibold tabular-nums shrink-0">{formatPrice(CHECKOUT_OFFER.price)}</span>
         </div>
 
         <h3 className="mt-6 text-sm font-semibold tracking-tight">Zahlung</h3>
         {bank ? (
           <dl className="mt-2 space-y-1 text-sm">
-            <Row label="Empfänger" value={bank.holder} />
+            {bank.holder && <Row label="Empfänger" value={bank.holder} />}
             <Row label="IBAN" value={bank.iban} mono />
             {bank.bic && <Row label="BIC" value={bank.bic} mono />}
             {bank.bank && <Row label="Bank" value={bank.bank} />}

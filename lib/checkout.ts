@@ -28,6 +28,10 @@ export type CheckoutOffer = {
   name: string;
   tagline: string;
   description: string;
+  /** Anzahl der enthaltenen Sessions (für "5 × 60 Min" + Preis pro Session) */
+  sessionCount: number;
+  /** Dauer einer Session in Minuten */
+  sessionMinutes: number;
   /** Brutto-Gesamtpreis in EUR */
   price: number;
   /** 0.19 = 19 % MwSt */
@@ -38,23 +42,25 @@ export type CheckoutOffer = {
 };
 
 export const CHECKOUT_OFFER: CheckoutOffer = {
-  slug: "jerome-coaching-1000",
+  slug: "jerome-5x60-1000",
   orgSlug: "jerome",
-  name: "Jerome Deres Coaching",
-  tagline: "1:1 Coaching-Programm",
+  name: "5er-Paket 1:1 Sessions",
+  tagline: "5 × 60 Minuten mit Jerome Deres",
   description:
-    "Persönliche 1:1-Begleitung von Jerome Deres: klare Positionierung, ein " +
-    "verkaufsstarkes Angebot und ein Vertriebsprozess, der planbar Termine und " +
-    "Abschlüsse liefert.",
+    "Fünf persönliche 1:1-Sessions à 60 Minuten mit Jerome Deres. Jede Session " +
+    "hat eine eigene Agenda — an dem, woran du gerade wirklich arbeitest, statt " +
+    "an einem Standardprogramm.",
+  sessionCount: 5,
+  sessionMinutes: 60,
   price: 1000,
   vatRate: 0.19,
   currency: "EUR",
   includes: [
-    "1:1 Strategie-Session mit Jerome (90 Min.)",
-    "Positionierung & Angebots-Aufbau — gemeinsam erarbeitet",
-    "Skripte für Setter- und Klarheitsgespräche",
-    "4 Wochen Support per WhatsApp / E-Mail",
-    "Alle Vorlagen & Aufzeichnungen zum Behalten",
+    "5 × 60 Minuten 1:1 Session mit Jerome (per Zoom)",
+    "Termine flexibel in deinem Tempo — z. B. wöchentlich",
+    "Eigene Agenda pro Session statt festem Programm",
+    "Aufzeichnung und Notizen nach jeder Session",
+    "Konkrete Umsetzungs-Schritte zwischen den Terminen",
   ],
   plans: [
     {
@@ -78,6 +84,11 @@ export const CHECKOUT_OFFER: CheckoutOffer = {
 
 export function findPlan(id: string | null | undefined): PaymentPlan | null {
   return CHECKOUT_OFFER.plans.find((p) => p.id === id) ?? null;
+}
+
+/** Brutto-Preis je Session — Ankerpreis neben der Gesamtsumme. */
+export function pricePerSession(offer: CheckoutOffer = CHECKOUT_OFFER): number {
+  return Math.round((offer.price / offer.sessionCount) * 100) / 100;
 }
 
 /** Netto/MwSt-Aufteilung eines Brutto-Betrags (kaufmännisch auf Cent gerundet). */

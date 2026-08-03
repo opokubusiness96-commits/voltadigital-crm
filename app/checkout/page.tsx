@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
-import { Check, ShieldCheck } from "lucide-react";
-import { CHECKOUT_OFFER, formatPrice, vatSplit } from "@/lib/checkout";
+import { Check, Clock, ShieldCheck, Video } from "lucide-react";
+import { CHECKOUT_OFFER, formatPrice, pricePerSession, vatSplit } from "@/lib/checkout";
 import { CheckoutForm } from "./checkout-form";
 
 // Öffentliche Seite — kein Login (siehe PUBLIC_PATHS in proxy.ts).
@@ -22,6 +22,20 @@ export default function CheckoutPage() {
         <p className="text-[color:var(--color-muted)] mt-2 max-w-2xl leading-relaxed">
           {CHECKOUT_OFFER.description}
         </p>
+        <div className="mt-5 flex flex-wrap gap-x-5 gap-y-2 text-sm text-[color:var(--color-muted)]">
+          <span className="inline-flex items-center gap-1.5">
+            <Check className="w-4 h-4 text-[color:var(--color-accent)]" />
+            {CHECKOUT_OFFER.sessionCount} Sessions
+          </span>
+          <span className="inline-flex items-center gap-1.5">
+            <Clock className="w-4 h-4 text-[color:var(--color-accent)]" />
+            je {CHECKOUT_OFFER.sessionMinutes} Minuten
+          </span>
+          <span className="inline-flex items-center gap-1.5">
+            <Video className="w-4 h-4 text-[color:var(--color-accent)]" />
+            1:1 per Zoom
+          </span>
+        </div>
       </header>
 
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_22rem] gap-8 lg:gap-12 items-start">
@@ -40,6 +54,9 @@ export default function CheckoutPage() {
               <div className="text-xs text-[color:var(--color-muted)]">{CHECKOUT_OFFER.tagline}</div>
               <div className="mt-2 text-3xl font-bold font-display text-[color:var(--color-accent)] tabular-nums">
                 {formatPrice(CHECKOUT_OFFER.price)}
+              </div>
+              <div className="text-xs text-[color:var(--color-muted)] mt-1">
+                {formatPrice(pricePerSession())} pro Session
               </div>
             </div>
 
@@ -74,8 +91,9 @@ export default function CheckoutPage() {
           <div className="flex items-start gap-2.5 rounded-xl border border-[color:var(--color-border)] bg-[color:var(--color-surface-2)] p-4 text-xs leading-relaxed text-[color:var(--color-muted)]">
             <ShieldCheck className="w-4 h-4 mt-0.5 shrink-0 text-[color:var(--color-accent)]" />
             <p>
-              Nach der Bestellung meldet sich Jerome persönlich innerhalb von 24 Stunden für den Start-Termin.
-              Fragen vorab: <span className="text-[color:var(--color-text)]">info@jeromederes.com</span>
+              Nach der Bestellung meldet sich Jerome persönlich innerhalb von 24 Stunden — ihr legt gemeinsam
+              den ersten Termin fest, die weiteren Sessions planst du flexibel dazu. Fragen vorab:{" "}
+              <span className="text-[color:var(--color-text)]">info@jeromederes.com</span>
             </p>
           </div>
         </aside>
