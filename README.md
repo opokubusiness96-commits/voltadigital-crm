@@ -136,6 +136,39 @@ https://calendly.com/jerome/setter?utm_source=meta&utm_medium=cpc&utm_campaign=c
 Calendly speichert diese im Webhook-Payload unter `payload.invitee.tracking` —
 der Webhook übernimmt sie automatisch in die `leads` Tabelle.
 
+## 9. Checkout-Seite `/checkout`
+
+Öffentliche Verkaufsseite für **Jerome Deres Coaching · 1.000 € brutto**
+(inkl. 19 % MwSt: 840,34 € netto + 159,66 € MwSt). Zahlbar als Einmalzahlung
+oder in 2 Raten à 500 € — **ohne Ratenaufschlag**, die Summe bleibt 1.000 €.
+
+**Setup:**
+
+1. Migration `supabase/migrations/0017_checkout_orders.sql` im SQL Editor ausführen
+2. Optional: `CHECKOUT_BANK_*` in der Env setzen → die Danke-Seite zeigt die
+   Bankdaten direkt an. Ohne IBAN steht dort nur "Zahlungsdaten kommen mit der
+   Rechnung per E-Mail".
+3. Optional: `BREVO_TPL_CHECKOUT_CONFIRMATION` auf eine Brevo-Template-ID setzen
+   → automatische Bestellbestätigung. Ohne ID wird keine Mail verschickt.
+
+**Was beim Absenden passiert** (`app/checkout/actions.ts`):
+
+- Bestellung landet in `checkout_orders` mit Status `offen` und einer
+  Bestellnummer (`JD-2608-K3F9`), die zugleich der Verwendungszweck ist
+- Lead in der `jerome`-Org wird per E-Mail gesucht: vorhanden → Stage `won` +
+  `value_estimate = 1000`; sonst wird ein neuer Lead angelegt
+- Activity am Lead protokolliert die Bestellung
+- UTMs aus der URL (`/checkout?utm_source=meta&…`) wandern an Bestellung + Lead
+
+> **Kein Payment-Provider angebunden.** Die Seite erfasst eine verbindliche
+> Bestellung, kassiert aber nicht — bezahlt wird per Überweisung, der Status
+> wird in `checkout_orders.status` gepflegt. Für Stripe/PayPal später: der Betrag
+> wird bereits serverseitig aus `lib/checkout.ts` aufgelöst (nie aus dem
+> Formular), die Session-Erzeugung kann direkt vor dem Insert eingehängt werden.
+
+Preis, Leistungen und Ratenmodelle stehen in `lib/checkout.ts` — eine Änderung
+dort reicht, Seite und Server Action lesen beide daraus.
+
 ---
 
 ## Datenmodell (Kurz)
@@ -160,11 +193,17 @@ app/
     [id]/page.tsx             # Lead-Detail
     [id]/lead-editor.tsx      # Inline-Edit Client Component
     [id]/note-form.tsx        # Notiz-Eingabe
+  checkout/                   # ÖFFENTLICHE Checkout-Seite (1.000 €)
+    page.tsx                  # Angebot + Bestellübersicht
+    checkout-form.tsx         # Formular (Client Component)
+    actions.ts                # submitCheckout → Bestellung + Lead
+    danke/page.tsx            # Bestellnummer + Zahlungsdaten
   api/webhooks/calendly/      # HMAC-verifizierter Webhook
   api/auth/check/             # Whitelist-Check vor Login
   api/auth/signout/           # Server-Side Logout
 middleware.ts                 # Auth-Gate
 lib/types.ts                  # Stage/Source Enums + Labels
+lib/checkout.ts               # Checkout-Angebot (Preis, Raten, Validierung)
 lib/supabase/                 # Server- + Browser-Clients
 supabase/migrations/0001_init.sql
 ```

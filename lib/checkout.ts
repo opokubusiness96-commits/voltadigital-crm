@@ -1,0 +1,161 @@
+// Öffentliche Checkout-Seite (/checkout) — Angebots-Konfiguration.
+//
+// Bewusst Code-Konfiguration (analog lib/products.ts): ein Angebot ändert sich
+// selten und braucht keine eigene Tabelle. Die BESTELLUNGEN landen dagegen in
+// der DB (public.checkout_orders, Migration 0017).
+//
+// WICHTIG: Alle Preise sind BRUTTO in EUR (inkl. MwSt). Der Client schickt beim
+// Absenden nur die plan-ID — der Betrag wird IMMER serverseitig aus dieser Datei
+// aufgelöst (app/checkout/actions.ts), nie aus dem Formular übernommen.
+
+export type PaymentPlanId = "einmal" | "raten2";
+
+export type PaymentPlan = {
+  id: PaymentPlanId;
+  label: string;
+  hint: string;
+  installments: number;
+  /** Brutto pro Rate */
+  installmentAmount: number;
+  /** Brutto gesamt — bei allen Plänen identisch, kein Ratenaufschlag. */
+  total: number;
+};
+
+export type CheckoutOffer = {
+  slug: string;
+  /** organizations.slug, unter der die Bestellung im CRM landet. */
+  orgSlug: string;
+  name: string;
+  tagline: string;
+  description: string;
+  /** Brutto-Gesamtpreis in EUR */
+  price: number;
+  /** 0.19 = 19 % MwSt */
+  vatRate: number;
+  currency: "EUR";
+  includes: string[];
+  plans: PaymentPlan[];
+};
+
+export const CHECKOUT_OFFER: CheckoutOffer = {
+  slug: "jerome-coaching-1000",
+  orgSlug: "jerome",
+  name: "Jerome Deres Coaching",
+  tagline: "1:1 Coaching-Programm",
+  description:
+    "Persönliche 1:1-Begleitung von Jerome Deres: klare Positionierung, ein " +
+    "verkaufsstarkes Angebot und ein Vertriebsprozess, der planbar Termine und " +
+    "Abschlüsse liefert.",
+  price: 1000,
+  vatRate: 0.19,
+  currency: "EUR",
+  includes: [
+    "1:1 Strategie-Session mit Jerome (90 Min.)",
+    "Positionierung & Angebots-Aufbau — gemeinsam erarbeitet",
+    "Skripte für Setter- und Klarheitsgespräche",
+    "4 Wochen Support per WhatsApp / E-Mail",
+    "Alle Vorlagen & Aufzeichnungen zum Behalten",
+  ],
+  plans: [
+    {
+      id: "einmal",
+      label: "Einmalzahlung",
+      hint: "Komplett in einer Zahlung — direkt nach der Bestellung fällig.",
+      installments: 1,
+      installmentAmount: 1000,
+      total: 1000,
+    },
+    {
+      id: "raten2",
+      label: "2 Raten",
+      hint: "Erste Rate sofort, zweite Rate 30 Tage später. Kein Aufschlag.",
+      installments: 2,
+      installmentAmount: 500,
+      total: 1000,
+    },
+  ],
+};
+
+export function findPlan(id: string | null | undefined): PaymentPlan | null {
+  return CHECKOUT_OFFER.plans.find((p) => p.id === id) ?? null;
+}
+
+/** Netto/MwSt-Aufteilung eines Brutto-Betrags (kaufmännisch auf Cent gerundet). */
+export function vatSplit(gross: number, rate: number): { net: number; vat: number } {
+  const net = Math.round((gross / (1 + rate)) * 100) / 100;
+  return { net, vat: Math.round((gross - net) * 100) / 100 };
+}
+
+/** Preisformat mit Cent — lib/utils formatEUR rundet bewusst auf volle Euro. */
+export function formatPrice(n: number): string {
+  return new Intl.NumberFormat("de-DE", {
+    style: "currency",
+    currency: "EUR",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(n);
+}
+
+// ── Formular-Daten ───────────────────────────────────────────────────────────
+
+export type CheckoutInput = {
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone: string;
+  company: string;
+  vatId: string;
+  street: string;
+  postalCode: string;
+  city: string;
+  country: string;
+  planId: string;
+  notes: string;
+  acceptTerms: boolean;
+  acceptWithdrawal: boolean;
+  // Attribution aus der URL (?utm_source=…) — landet mit an der Bestellung.
+  utmSource?: string;
+  utmMedium?: string;
+  utmCampaign?: string;
+  utmContent?: string;
+};
+
+export type FieldErrors = Partial<Record<keyof CheckoutInput, string>>;
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+
+/**
+ * Validierung — läuft in der Server Action (Quelle der Wahrheit) und im Client
+ * für sofortiges Feedback. Deshalb bewusst frei von Server-Imports.
+ */
+export function validateCheckout(input: CheckoutInput): FieldErrors {
+  const errors: FieldErrors = {};
+  const req = (v: string) => v.trim().length > 0;
+
+  if (!req(input.firstName)) errors.firstName = "Vorname fehlt.";
+  if (!req(input.lastName)) errors.lastName = "Nachname fehlt.";
+  if (!EMAIL_RE.test(input.email.trim())) errors.email = "Bitte eine gültige E-Mail-Adresse angeben.";
+  if (input.phone.replace(/[^\d]/g, "").length < 6) errors.phone = "Bitte eine erreichbare Telefonnummer angeben.";
+  if (!req(input.street)) errors.street = "Straße und Hausnummer fehlen.";
+  if (!req(input.postalCode)) errors.postalCode = "PLZ fehlt.";
+  if (!req(input.city)) errors.city = "Ort fehlt.";
+  if (!req(input.country)) errors.country = "Land fehlt.";
+  if (!findPlan(input.planId)) errors.planId = "Bitte ein Zahlungsmodell wählen.";
+  if (!input.acceptTerms) errors.acceptTerms = "Bitte AGB und Datenschutz bestätigen.";
+  if (!input.acceptWithdrawal) errors.acceptWithdrawal = "Bitte die Widerrufsbelehrung bestätigen.";
+
+  return errors;
+}
+
+/**
+ * Bestellnummer, z. B. "JD-2608-K3F9". Kein fortlaufender Zähler — die Eindeutigkeit
+ * erzwingt der unique-Index auf checkout_orders.reference (Action retryt bei Kollision).
+ */
+export function makeOrderReference(now: Date, rand: () => number = Math.random): string {
+  const yy = String(now.getFullYear()).slice(2);
+  const mm = String(now.getMonth() + 1).padStart(2, "0");
+  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // ohne I/O/0/1
+  let tail = "";
+  for (let i = 0; i < 4; i++) tail += alphabet[Math.floor(rand() * alphabet.length)];
+  return `JD-${yy}${mm}-${tail}`;
+}
