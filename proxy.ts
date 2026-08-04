@@ -16,8 +16,29 @@ const PUBLIC_PATHS = [
   "/checkout",
 ];
 
+// Eigene Kundendomain für die Verkaufsseite. Käufer sollen nicht die interne
+// CRM-Adresse sehen — auf diesen Hosts IST der Checkout die Startseite, und es
+// gibt bewusst nichts anderes: alles ausserhalb von /checkout landet wieder dort.
+const CHECKOUT_HOSTS = new Set(["checkout1000.jeromederes.com"]);
+
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
+
+  const host = (request.headers.get("host") ?? "").split(":")[0].toLowerCase();
+  if (CHECKOUT_HOSTS.has(host)) {
+    if (pathname === "/") {
+      const url = request.nextUrl.clone();
+      url.pathname = "/checkout";
+      return NextResponse.rewrite(url);
+    }
+    if (pathname.startsWith("/checkout") || pathname.startsWith("/_next/")) {
+      return NextResponse.next();
+    }
+    const url = request.nextUrl.clone();
+    url.pathname = "/";
+    url.search = "";
+    return NextResponse.redirect(url);
+  }
 
   // DEV-ONLY: lokalen Login-Flow simulieren ohne echtes Backend.
   // "Eingeloggt" = Cookie dev_fake_auth=1 (gesetzt von der Login-Seite).
