@@ -19,7 +19,10 @@ const PUBLIC_PATHS = [
 // Eigene Kundendomain für die Verkaufsseite. Käufer sollen nicht die interne
 // CRM-Adresse sehen — auf diesen Hosts IST der Checkout die Startseite, und es
 // gibt bewusst nichts anderes: alles ausserhalb von /checkout landet wieder dort.
-const CHECKOUT_HOSTS = new Set(["checkout1000.jeromederes.com"]);
+const CHECKOUT_HOSTS = new Set([
+  "checkout1000.jeromederes.com",
+  "checkout1000.voltadigital.agency",
+]);
 
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
