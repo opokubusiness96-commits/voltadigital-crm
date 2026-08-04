@@ -5,12 +5,15 @@ import { createServerClient, type CookieOptions } from "@supabase/ssr";
 // getUser-Check), daher NICHT mehr hier. Passwort-Flow + Registrierung MÜSSEN
 // öffentlich sein — sonst wird der ausgeloggte User (bzw. der Reset-Link aus der
 // E-Mail) aufs Login zurückgeworfen und der Reset-Token geht verloren.
+// /checkout ist die Verkaufsseite für Kunden (inkl. /checkout/danke) — die darf
+// per Definition niemanden zum Login schicken.
 const PUBLIC_PATHS = [
   "/login",
   "/auth/callback",
   "/forgot-password",
   "/reset-password",
   "/register",
+  "/checkout",
 ];
 
 export async function proxy(request: NextRequest) {
