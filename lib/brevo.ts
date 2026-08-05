@@ -225,6 +225,12 @@ export async function sendBrevoEmail(opts: {
   to: { email: string; name?: string };
   templateId: number;
   params: Record<string, unknown>;
+  /**
+   * Abweichender Absender für einzelne Strecken. Der Checkout schickt über
+   * coaching@jeromederes.com, die Pipeline-Mails bleiben auf info@ — deshalb
+   * ein Override pro Aufruf statt einer globalen Umstellung.
+   */
+  sender?: { email: string; name?: string };
 }): Promise<{ ok: true; messageId: string } | { ok: false; error: string }> {
   const apiKey = process.env.BREVO_API_KEY;
   if (!apiKey) return { ok: false, error: "BREVO_API_KEY not set" };
@@ -245,11 +251,11 @@ export async function sendBrevoEmail(opts: {
       accept: "application/json",
     },
     body: JSON.stringify({
-      sender: { email: SENDER_EMAIL, name: SENDER_NAME },
+      sender: opts.sender ?? { email: SENDER_EMAIL, name: SENDER_NAME },
       to: [recipient],
       templateId: opts.templateId,
       params: opts.params,
-      replyTo: { email: SENDER_EMAIL, name: SENDER_NAME },
+      replyTo: opts.sender ?? { email: SENDER_EMAIL, name: SENDER_NAME },
     }),
   });
   const text = await res.text();

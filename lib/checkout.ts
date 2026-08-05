@@ -15,11 +15,27 @@ export type PaymentPlan = {
   label: string;
   hint: string;
   installments: number;
-  /** Brutto pro Rate */
+  /** Brutto pro Rate (inkl. MwSt) — das, was tatsächlich abgebucht wird. */
   installmentAmount: number;
   /** Brutto gesamt — bei allen Plänen identisch, kein Ratenaufschlag. */
   total: number;
+  /**
+   * Name der Env-Variable mit der Stripe-Price-ID. Der abgerechnete Betrag steht
+   * damit in Stripe, nicht im Code — die Zahlen hier sind nur die Anzeige.
+   * Beide Preise sind `tax_behavior: inclusive`, 1.000 € sind also brutto inkl.
+   * 19 % MwSt (Konvention des Kontos, siehe Klarheitssessions).
+   */
+  priceEnv: string;
+  /**
+   * `payment` = eine Zahlung. `subscription` = echte Raten: monatlicher Preis,
+   * der nach der letzten Rate automatisch endet (cancel_at wird gesetzt, sobald
+   * die Session bezahlt ist — siehe app/checkout/fulfill.ts).
+   */
+  mode: "payment" | "subscription";
 };
+
+/** Kontaktadresse auf Seite, Danke-Seite und in der Bestätigungs-Mail. */
+export const CONTACT_EMAIL = "coaching@jeromederes.com";
 
 export type CheckoutOffer = {
   slug: string;
@@ -32,7 +48,11 @@ export type CheckoutOffer = {
   sessionCount: number;
   /** Dauer einer Session in Minuten */
   sessionMinutes: number;
-  /** Brutto-Gesamtpreis in EUR */
+  /**
+   * NETTO-Preis in EUR. Die MwSt kommt oben drauf (B2B-Auszeichnung) — der
+   * Kunde zahlt `grossPrice()`. In Stripe hängt am Preis ein 19-%-Steuersatz,
+   * der Betrag dort ist ebenfalls netto.
+   */
   price: number;
   /** 0.19 = 19 % MwSt */
   vatRate: number;
@@ -66,18 +86,24 @@ export const CHECKOUT_OFFER: CheckoutOffer = {
     {
       id: "einmal",
       label: "Einmalzahlung",
-      hint: "Komplett in einer Zahlung — direkt nach der Bestellung fällig.",
+      hint: "Komplett in einer Zahlung — Karte, Klarna, SEPA oder Link.",
       installments: 1,
-      installmentAmount: 1000,
-      total: 1000,
+      installmentAmount: 1190,
+      total: 1190,
+      priceEnv: "STRIPE_PRICE_CHECKOUT_ONCE",
+      mode: "payment",
     },
     {
       id: "raten2",
       label: "2 Raten",
       hint: "Erste Rate sofort, zweite Rate 30 Tage später. Kein Aufschlag.",
       installments: 2,
-      installmentAmount: 500,
-      total: 1000,
+      installmentAmount: 595,
+      total: 1190,
+      priceEnv: "STRIPE_PRICE_CHECKOUT_2X",
+      // Karte oder SEPA-Lastschrift: Klarna kann keine wiederkehrende Zahlung,
+      // Stripe blendet es im Raten-Checkout deshalb selbst aus.
+      mode: "subscription",
     },
   ],
 };
@@ -86,9 +112,19 @@ export function findPlan(id: string | null | undefined): PaymentPlan | null {
   return CHECKOUT_OFFER.plans.find((p) => p.id === id) ?? null;
 }
 
-/** Brutto-Preis je Session — Ankerpreis neben der Gesamtsumme. */
+/** Netto-Preis je Session — Ankerpreis neben der Gesamtsumme. */
 export function pricePerSession(offer: CheckoutOffer = CHECKOUT_OFFER): number {
   return Math.round((offer.price / offer.sessionCount) * 100) / 100;
+}
+
+/** MwSt-Betrag auf den Nettopreis (kaufmännisch auf Cent gerundet). */
+export function vatAmount(offer: CheckoutOffer = CHECKOUT_OFFER): number {
+  return Math.round(offer.price * offer.vatRate * 100) / 100;
+}
+
+/** Was der Kunde tatsächlich zahlt: netto + MwSt. */
+export function grossPrice(offer: CheckoutOffer = CHECKOUT_OFFER): number {
+  return Math.round((offer.price + vatAmount(offer)) * 100) / 100;
 }
 
 // ── Rechtstexte ──────────────────────────────────────────────────────────────

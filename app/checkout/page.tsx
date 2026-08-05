@@ -1,6 +1,13 @@
 import type { Metadata } from "next";
 import { Check, Clock, ShieldCheck, Video } from "lucide-react";
-import { CHECKOUT_OFFER, formatPrice, pricePerSession, vatSplit } from "@/lib/checkout";
+import {
+  CHECKOUT_OFFER,
+  CONTACT_EMAIL,
+  formatPrice,
+  grossPrice,
+  pricePerSession,
+  vatAmount,
+} from "@/lib/checkout";
 import { CheckoutForm } from "./checkout-form";
 import { LegalFooter } from "./legal";
 
@@ -11,7 +18,9 @@ export const metadata: Metadata = {
 };
 
 export default function CheckoutPage() {
-  const { net, vat } = vatSplit(CHECKOUT_OFFER.price, CHECKOUT_OFFER.vatRate);
+  // Netto ist der ausgezeichnete Preis, die MwSt kommt oben drauf.
+  const vat = vatAmount();
+  const gross = grossPrice();
 
   return (
     <main className="mx-auto max-w-6xl px-6 py-10 lg:py-16">
@@ -57,14 +66,14 @@ export default function CheckoutPage() {
                 {formatPrice(CHECKOUT_OFFER.price)}
               </div>
               <div className="text-xs text-[color:var(--color-muted)] mt-1">
-                {formatPrice(pricePerSession())} pro Session
+                {formatPrice(pricePerSession())} pro Session · netto
               </div>
             </div>
 
             <dl className="mt-4 space-y-1.5 border-t border-[color:var(--color-border)] pt-4 text-sm">
               <div className="flex justify-between text-[color:var(--color-muted)]">
                 <dt>Nettobetrag</dt>
-                <dd className="tabular-nums">{formatPrice(net)}</dd>
+                <dd className="tabular-nums">{formatPrice(CHECKOUT_OFFER.price)}</dd>
               </div>
               <div className="flex justify-between text-[color:var(--color-muted)]">
                 <dt>zzgl. {Math.round(CHECKOUT_OFFER.vatRate * 100)} % MwSt.</dt>
@@ -72,7 +81,7 @@ export default function CheckoutPage() {
               </div>
               <div className="flex justify-between pt-2 font-semibold border-t border-[color:var(--color-border)] mt-2">
                 <dt>Gesamt</dt>
-                <dd className="tabular-nums">{formatPrice(CHECKOUT_OFFER.price)}</dd>
+                <dd className="tabular-nums">{formatPrice(gross)}</dd>
               </div>
             </dl>
           </div>
@@ -94,7 +103,7 @@ export default function CheckoutPage() {
             <p>
               Nach der Bestellung meldet sich Jerome persönlich innerhalb von 24 Stunden — ihr legt gemeinsam
               den ersten Termin fest, die weiteren Sessions planst du flexibel dazu. Fragen vorab:{" "}
-              <span className="text-[color:var(--color-text)]">info@jeromederes.com</span>
+              <span className="text-[color:var(--color-text)]">{CONTACT_EMAIL}</span>
             </p>
           </div>
         </aside>

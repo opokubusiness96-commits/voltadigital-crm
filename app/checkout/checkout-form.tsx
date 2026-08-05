@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
 import { Loader2, Lock } from "lucide-react";
 import {
   CHECKOUT_OFFER,
@@ -35,7 +34,6 @@ const INPUT_CLS =
   "w-full bg-[color:var(--color-surface)] border border-[color:var(--color-border)] rounded-md px-3 py-2.5 outline-none focus:border-[color:var(--color-accent)] disabled:opacity-60";
 
 export function CheckoutForm() {
-  const router = useRouter();
   const [values, setValues] = useState<CheckoutInput>(EMPTY);
   const [errors, setErrors] = useState<FieldErrors>({});
   const [formError, setFormError] = useState<string | null>(null);
@@ -81,7 +79,10 @@ export function CheckoutForm() {
         setLoading(false);
         return;
       }
-      router.push(`/checkout/danke?ref=${encodeURIComponent(res.reference)}`);
+      // Weiter zur Stripe-Kasse. Bewusst window.location statt router.push:
+      // das Ziel liegt auf einer fremden Domain, die der Next-Router nicht
+      // ansteuern kann. `loading` bleibt an, bis der Browser wechselt.
+      window.location.href = res.url;
     } catch {
       setFormError("Verbindung fehlgeschlagen. Bitte nochmal versuchen.");
       setLoading(false);
@@ -251,8 +252,9 @@ export function CheckoutForm() {
         {errors.planId && <p className="text-sm text-[color:var(--color-red)]">{errors.planId}</p>}
 
         <p className="text-xs text-[color:var(--color-muted)] leading-relaxed">
-          Bezahlt wird per <strong className="text-[color:var(--color-text)]">Überweisung</strong>. Nach der
-          Bestellung erhältst du deine Bestellnummer und die Rechnung mit allen Zahlungsdaten per E-Mail.
+          Bezahlt wird sicher über <strong className="text-[color:var(--color-text)]">Stripe</strong> — Karte,
+          Klarna, SEPA-Lastschrift oder Link. Im nächsten Schritt wählst du die Zahlungsart, danach bekommst
+          du Bestätigung und Rechnung per E-Mail.
         </p>
 
         <Field label="Nachricht an Jerome" optional>
@@ -300,7 +302,7 @@ export function CheckoutForm() {
         >
           {loading ? (
             <>
-              <Loader2 className="w-4 h-4 animate-spin" /> Bestellung wird gesendet…
+              <Loader2 className="w-4 h-4 animate-spin" /> Weiter zur Zahlung…
             </>
           ) : (
             <>

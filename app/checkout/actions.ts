@@ -1,21 +1,21 @@
 "use server";
 
+import { headers } from "next/headers";
+
 import { getSupabaseServiceRole } from "@/lib/supabase/server";
-import { sendBrevoEmail } from "@/lib/brevo";
-import { bankDetails } from "@/lib/checkout-bank";
+import { stripePost } from "@/lib/stripe";
 import {
   CHECKOUT_OFFER,
   findPlan,
-  formatPrice,
   makeOrderReference,
   validateCheckout,
-  vatSplit,
   type CheckoutInput,
   type FieldErrors,
+  type PaymentPlan,
 } from "@/lib/checkout";
 
 export type CheckoutResult =
-  | { ok: true; reference: string }
+  | { ok: true; reference: string; url: string }
   | { ok: false; error: string; fields?: FieldErrors };
 
 function isDevFake(): boolean {
@@ -29,17 +29,19 @@ const trim = (v: unknown, max = 200): string =>
   typeof v === "string" ? v.trim().slice(0, max) : "";
 
 /**
- * Bestellung der öffentlichen Checkout-Seite entgegennehmen.
+ * Bestellung der öffentlichen Checkout-Seite entgegennehmen und den Käufer zur
+ * Stripe-Kasse schicken.
  *
  * Läuft ohne Login — deshalb:
- *  - Betrag/Raten kommen NIE aus dem Formular, sondern aus lib/checkout.ts
- *  - geschrieben wird mit dem Service-Role-Key (RLS-Bypass, siehe Migration 0017);
- *    es gibt bewusst keine anonyme insert-Policy
+ *  - Preis/Raten kommen NIE aus dem Formular, sondern aus lib/checkout.ts bzw.
+ *    aus dem Stripe-Price hinter der Env-Variable des Plans
+ *  - geschrieben wird mit dem Service-Role-Key (RLS-Bypass, Migration 0017)
  *  - alle Eingaben werden hier nochmal validiert und längenbegrenzt
  *
- * Es ist KEIN Payment-Provider angebunden: die Bestellung wird verbindlich
- * erfasst (Status "offen"), bezahlt wird per Überweisung mit der Bestellnummer
- * als Verwendungszweck. Der Status wird im CRM auf "bezahlt" gesetzt.
+ * Die Bestellung entsteht hier mit Status "offen" — Lead, Activity und
+ * Bestätigungs-Mail folgen erst, wenn Stripe die Zahlung meldet
+ * (app/checkout/fulfill.ts). Ein Abbruch an der Kasse hinterlässt damit keinen
+ * gewonnenen Deal in der Pipeline.
  */
 export async function submitCheckout(raw: CheckoutInput): Promise<CheckoutResult> {
   const input: CheckoutInput = {
@@ -74,7 +76,8 @@ export async function submitCheckout(raw: CheckoutInput): Promise<CheckoutResult
 
   // DEV-ONLY: ohne echtes Backend durchklickbar (analog getSupabaseServer).
   if (isDevFake()) {
-    return { ok: true, reference: makeOrderReference(new Date()) };
+    const reference = makeOrderReference(new Date());
+    return { ok: true, reference, url: `/checkout/danke?ref=${reference}` };
   }
 
   if (!process.env.SUPABASE_SERVICE_ROLE_KEY || !process.env.NEXT_PUBLIC_SUPABASE_URL) {
@@ -97,10 +100,7 @@ export async function submitCheckout(raw: CheckoutInput): Promise<CheckoutResult
   }
   const orgId = org.id as string;
 
-  // 1. Lead in der Pipeline finden oder anlegen (Bestellung = gewonnener Deal).
-  const leadId = await upsertLead(admin, orgId, input, fullName, plan.total);
-
-  // 2. Bestellung schreiben. reference ist unique → bei Kollision neu würfeln.
+  // Bestellung schreiben. reference ist unique → bei Kollision neu würfeln.
   let reference = "";
   let lastError: string | null = null;
   for (let attempt = 0; attempt < 4; attempt++) {
@@ -127,7 +127,7 @@ export async function submitCheckout(raw: CheckoutInput): Promise<CheckoutResult
       country: input.country,
       notes: input.notes || null,
       status: "offen",
-      lead_id: leadId,
+      lead_id: null,
       utm_source: input.utmSource ?? null,
       utm_medium: input.utmMedium ?? null,
       utm_campaign: input.utmCampaign ?? null,
@@ -150,147 +150,122 @@ export async function submitCheckout(raw: CheckoutInput): Promise<CheckoutResult
     return { ok: false, error: "Bestellung konnte nicht gespeichert werden. Bitte per E-Mail melden." };
   }
 
-  // 3. Activity am Lead (best-effort — die Bestellung selbst steht bereits).
-  if (leadId) {
-    const { error: activityError } = await admin.from("activities").insert({
-      org_id: orgId,
-      lead_id: leadId,
-      type: "note",
-      content: `Checkout-Bestellung ${reference} — ${CHECKOUT_OFFER.name}, ${plan.label} (${formatPrice(plan.total)} brutto)`,
-      meta: { source: "checkout", reference, plan_id: plan.id, amount_gross: plan.total },
-    });
-    if (activityError) console.error("checkout: Activity-Log fehlgeschlagen", activityError.message);
-  }
-
-  // 4. Bestätigungs-Mail (nur wenn ein Brevo-Template hinterlegt ist).
-  await sendConfirmation(input, fullName, reference, plan.label, plan.installmentAmount, plan.installments);
-
-  return { ok: true, reference };
-}
-
-type AdminClient = ReturnType<typeof getSupabaseServiceRole>;
-
-/**
- * Bestehenden Lead (gleiche Org + gleiche E-Mail) auf "won" heben oder einen
- * neuen anlegen. Fehler hier dürfen die Bestellung nicht kippen → null zurück,
- * die Bestellung wird dann ohne lead_id gespeichert.
- */
-async function upsertLead(
-  admin: AdminClient,
-  orgId: string,
-  input: CheckoutInput,
-  fullName: string,
-  amount: number,
-): Promise<string | null> {
   try {
-    // ilike statt eq: manuell angelegte Leads (/leads/new) speichern die E-Mail
-    // ungeändert, können also gemischte Schreibweise haben. Dafür müssen %, _ und
-    // \ escaped werden — sonst wäre "max_mustermann@…" ein Suchmuster und träfe
-    // fremde Leads.
-    const emailPattern = input.email.replace(/[\\%_]/g, (c) => `\\${c}`);
-    const { data: existing } = await admin
-      .from("leads")
-      .select("id, name, first_name, last_name, phone")
-      .eq("org_id", orgId)
-      .ilike("email", emailPattern)
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    if (existing?.id) {
-      // Vorhandene Felder nicht überschreiben — nur Lücken füllen.
-      const { error } = await admin
-        .from("leads")
-        .update({
-          stage: "won",
-          value_estimate: amount,
-          name: existing.name || fullName,
-          first_name: existing.first_name || input.firstName,
-          last_name: existing.last_name || input.lastName,
-          phone: existing.phone || input.phone || null,
-        })
-        .eq("id", existing.id as string);
-      if (error) throw new Error(error.message);
-      return existing.id as string;
-    }
-
-    const { data: created, error } = await admin
-      .from("leads")
-      .insert({
-        org_id: orgId,
-        source: "manual",
-        source_manual: `Checkout ${CHECKOUT_OFFER.name}`,
-        stage: "won",
-        name: fullName,
-        first_name: input.firstName,
-        last_name: input.lastName,
-        email: input.email,
-        phone: input.phone || null,
-        value_estimate: amount,
-        notes: input.notes || null,
-        utm_source: input.utmSource ?? null,
-        utm_medium: input.utmMedium ?? null,
-        utm_campaign: input.utmCampaign ?? null,
-        utm_content: input.utmContent ?? null,
-      })
-      .select("id")
-      .single();
-
-    if (error) throw new Error(error.message);
-    return (created?.id as string) ?? null;
+    const url = await createStripeCheckout(plan, input, fullName, reference);
+    return { ok: true, reference, url };
   } catch (err) {
-    console.error("checkout: Lead-Verknüpfung fehlgeschlagen", err);
-    return null;
+    console.error("checkout: Stripe-Session fehlgeschlagen", reference, err);
+    return {
+      ok: false,
+      error: "Die Zahlungsseite konnte nicht geöffnet werden. Bitte nochmal versuchen.",
+    };
   }
 }
 
 /**
- * Optionale Bestätigungs-Mail über Brevo. Ohne BREVO_TPL_CHECKOUT_CONFIRMATION
- * passiert nichts — die Bestellnummer steht dann nur auf der Danke-Seite.
+ * Stripe-Kasse für diese Bestellung. Der Kunde wird vorher als Customer
+ * angelegt, damit Rechnung und Beleg die Adresse tragen, die er hier eingegeben
+ * hat — er muss sie bei Stripe nicht ein zweites Mal tippen.
  *
- * Die Zahlungsdaten reist die Mail als Parameter mit (aus lib/checkout-bank.ts,
- * gleiche Quelle wie die Danke-Seite) — die IBAN steht damit NICHT in der
- * Brevo-Vorlage und lässt sich ohne Template-Bearbeitung wechseln. Fehlt sie in
- * der Env, blendet die Vorlage den Bank-Block aus.
+ * Die 19 % MwSt hängen als Stripe-Steuersatz an der Position (zzgl.), der Preis
+ * selbst ist netto. Stripe zeigt dem Käufer damit Netto, MwSt und Gesamtbetrag
+ * getrennt an — und rechnet exakt dieselbe Summe wie unsere Bestellübersicht.
  */
-async function sendConfirmation(
+async function createStripeCheckout(
+  plan: PaymentPlan,
   input: CheckoutInput,
   fullName: string,
   reference: string,
-  planLabel: string,
-  installmentAmount: number,
-  installments: number,
-): Promise<void> {
-  const templateId = Number(process.env.BREVO_TPL_CHECKOUT_CONFIRMATION);
-  if (!Number.isFinite(templateId) || templateId <= 0) return;
+): Promise<string> {
+  const priceId = process.env[plan.priceEnv];
+  if (!priceId) throw new Error(`${plan.priceEnv} fehlt — kein Stripe-Price hinterlegt`);
 
-  const { net, vat } = vatSplit(CHECKOUT_OFFER.price, CHECKOUT_OFFER.vatRate);
-  const bank = bankDetails();
-  try {
-    const res = await sendBrevoEmail({
-      to: { email: input.email, name: fullName },
-      templateId,
-      params: {
-        firstName: input.firstName,
-        fullName,
-        reference,
-        offerName: CHECKOUT_OFFER.name,
-        planLabel,
-        installments,
-        installmentAmount: formatPrice(installmentAmount),
-        amountGross: formatPrice(CHECKOUT_OFFER.price),
-        amountNet: formatPrice(net),
-        amountVat: formatPrice(vat),
-        vatRate: Math.round(CHECKOUT_OFFER.vatRate * 100),
-        // Bank-Block: die Vorlage rendert ihn nur, wenn eine IBAN ankommt.
-        bankHolder: bank?.holder ?? "",
-        bankIban: bank?.iban ?? "",
-        bankBic: bank?.bic ?? "",
-        bankName: bank?.bank ?? "",
+  const taxRate = process.env.STRIPE_TAX_RATE;
+  if (!taxRate) throw new Error("STRIPE_TAX_RATE fehlt — MwSt-Satz nicht hinterlegt");
+
+  const origin = await currentOrigin();
+
+  const customer = (await stripePost(
+    "/customers",
+    {
+      name: input.company || fullName,
+      email: input.email,
+      phone: input.phone || undefined,
+      address: {
+        line1: input.street,
+        postal_code: input.postalCode,
+        city: input.city,
+        country: countryCode(input.country),
       },
-    });
-    if (!res.ok) console.error("checkout: Bestätigungs-Mail fehlgeschlagen", res.error);
-  } catch (err) {
-    console.error("checkout: Bestätigungs-Mail fehlgeschlagen", err);
-  }
+      metadata: { reference, offer_slug: CHECKOUT_OFFER.slug },
+    },
+    // Zweimal Absenden darf keinen zweiten Kunden anlegen.
+    `customer-${reference}`,
+  )) as { id: string };
+
+  const isSubscription = plan.mode === "subscription";
+
+  const session = (await stripePost(
+    "/checkout/sessions",
+    {
+      mode: plan.mode,
+      customer: customer.id,
+      locale: "de",
+      // Preis kommt aus Stripe, Steuersatz kommt oben drauf. In Subscription-
+      // Sessions gehören die Sätze ans Abo, nicht an die Position.
+      line_items: [
+        isSubscription
+          ? { price: priceId, quantity: 1 }
+          : { price: priceId, quantity: 1, tax_rates: [taxRate] },
+      ],
+      ...(isSubscription
+        ? {
+            subscription_data: {
+              default_tax_rates: [taxRate],
+              description: `${CHECKOUT_OFFER.name} — ${plan.installments} Raten`,
+              metadata: { reference, plan_id: plan.id, installments: plan.installments },
+            },
+          }
+        : {
+            payment_intent_data: {
+              description: `${CHECKOUT_OFFER.name} — ${reference}`,
+              metadata: { reference, plan_id: plan.id },
+            },
+          }),
+      success_url: `${origin}/checkout/danke?ref=${reference}&session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${origin}/checkout?abgebrochen=1`,
+      metadata: {
+        reference,
+        offer_slug: CHECKOUT_OFFER.slug,
+        plan_id: plan.id,
+        installments: plan.installments,
+        // Beweis der Zustimmung zum vorzeitigen Leistungsbeginn (§ 356 Abs. 4
+        // BGB) — liegt damit unveränderbar bei Stripe.
+        withdrawal_consent_at: new Date().toISOString(),
+      },
+    },
+    `session-${reference}`,
+  )) as { url?: string };
+
+  if (!session.url) throw new Error("Stripe lieferte keine Checkout-URL");
+  return session.url;
+}
+
+/** ISO-Ländercode für Stripe — das Formular bietet genau diese drei an. */
+function countryCode(country: string): string {
+  const map: Record<string, string> = { Deutschland: "DE", Österreich: "AT", Schweiz: "CH" };
+  return map[country] ?? "DE";
+}
+
+/**
+ * Basis-URL für success/cancel. Muss die Domain sein, auf der der Käufer
+ * gerade steht (checkout1000.jeromederes.com ODER die CRM-Adresse) — sonst
+ * landet er nach der Zahlung auf einem fremden Host.
+ */
+async function currentOrigin(): Promise<string> {
+  const h = await headers();
+  const host = h.get("x-forwarded-host") || h.get("host");
+  if (!host) return process.env.NEXT_PUBLIC_SITE_URL || "https://crm.voltadigital.agency";
+  const protocol = host.startsWith("localhost") || host.startsWith("127.0.0.1") ? "http" : "https";
+  return `${protocol}://${host}`;
 }
