@@ -8,17 +8,20 @@
 // Absenden nur die plan-ID — der Betrag wird IMMER serverseitig aus dieser Datei
 // aufgelöst (app/checkout/actions.ts), nie aus dem Formular übernommen.
 
-export type PaymentPlanId = "einmal" | "raten2";
+export type PaymentPlanId = "einmal" | "raten2" | "raten3";
 
 export type PaymentPlan = {
   id: PaymentPlanId;
   label: string;
   hint: string;
   installments: number;
-  /** Brutto pro Rate (inkl. MwSt) — das, was tatsächlich abgebucht wird. */
+  /**
+   * Betrag pro Rate — genau das, was Stripe je Abbuchung zieht. Die Gesamtsumme
+   * wird daraus gerechnet (`planTotal`), nicht separat gepflegt: ein zweites
+   * Feld könnte der Realität widersprechen, und beim Preis ist genau das schon
+   * einmal passiert.
+   */
   installmentAmount: number;
-  /** Brutto gesamt — bei allen Plänen identisch, kein Ratenaufschlag. */
-  total: number;
   /**
    * Name der Env-Variable mit der Stripe-Price-ID. Der abgerechnete Betrag steht
    * damit in Stripe, nicht im Code — die Zahlen hier sind nur die Anzeige.
@@ -101,7 +104,6 @@ export const CHECKOUT_OFFER: CheckoutOffer = {
       hint: "Komplett in einer Zahlung — Karte, Klarna, SEPA oder Link.",
       installments: 1,
       installmentAmount: 1000,
-      total: 1000,
       priceEnv: "STRIPE_PRICE_CHECKOUT_ONCE",
       mode: "payment",
     },
@@ -111,10 +113,22 @@ export const CHECKOUT_OFFER: CheckoutOffer = {
       hint: "Erste Rate sofort, zweite Rate 30 Tage später. Kein Aufschlag.",
       installments: 2,
       installmentAmount: 500,
-      total: 1000,
       priceEnv: "STRIPE_PRICE_CHECKOUT_2X",
       // Karte oder SEPA-Lastschrift: Klarna kann keine wiederkehrende Zahlung,
       // Stripe blendet es im Raten-Checkout deshalb selbst aus.
+      mode: "subscription",
+    },
+    {
+      id: "raten3",
+      label: "3 Raten",
+      // 1.000 / 3 geht nicht glatt auf, und ein Stripe-Abo bucht jeden Monat
+      // denselben Betrag. 333,33 × 3 = 999,99 — der letzte Cent bleibt beim
+      // Kunden. Aufrunden auf 333,34 wären 1.000,02, also mehr als ausgezeichnet;
+      // das ist die schlechtere Richtung.
+      hint: "Erste Rate sofort, dann monatlich. Kein Aufschlag.",
+      installments: 3,
+      installmentAmount: 333.33,
+      priceEnv: "STRIPE_PRICE_CHECKOUT_3X",
       mode: "subscription",
     },
   ],
@@ -122,6 +136,16 @@ export const CHECKOUT_OFFER: CheckoutOffer = {
 
 export function findPlan(id: string | null | undefined): PaymentPlan | null {
   return CHECKOUT_OFFER.plans.find((p) => p.id === id) ?? null;
+}
+
+/**
+ * Was der Kunde über alle Raten hinweg zahlt. Immer aus dem Ratenbetrag
+ * gerechnet, damit angezeigte Summe und tatsächliche Abbuchungen nicht
+ * auseinanderlaufen können. Bei 3 Raten sind das 999,99 € statt 1.000 € —
+ * siehe Kommentar am Plan.
+ */
+export function planTotal(plan: PaymentPlan): number {
+  return Math.round(plan.installmentAmount * plan.installments * 100) / 100;
 }
 
 /** Preis je Session — Ankerpreis neben der Gesamtsumme. */

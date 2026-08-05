@@ -140,9 +140,25 @@ der Webhook übernimmt sie automatisch in die `leads` Tabelle.
 
 Öffentliche Verkaufsseite für das **5er-Paket 1:1 Sessions — 5 × 60 Minuten mit
 Jerome Deres, 1.000 €** (200 € pro Session). **Keine Umsatzsteuer**: der Kunde
-zahlt glatt 1.000 €, es gibt keine Netto/MwSt-Aufschlüsselung. Zahlbar als
-Einmalzahlung oder in 2 Raten à 500 € — **ohne Ratenaufschlag**, die Summe
-bleibt 1.000 €.
+zahlt glatt 1.000 €, es gibt keine Netto/MwSt-Aufschlüsselung.
+
+Drei Zahlungsmodelle, alle **ohne Ratenaufschlag**:
+
+| Modell | Abbuchung | Summe |
+|---|---|---|
+| Einmalzahlung | 1.000,00 € | 1.000,00 € |
+| 2 Raten | 2 × 500,00 € monatlich | 1.000,00 € |
+| 3 Raten | 3 × 333,33 € monatlich | 999,99 € |
+
+> 1.000 ÷ 3 geht nicht glatt auf, und ein Stripe-Abo bucht jeden Monat denselben
+> Betrag. Bei drei Raten bleibt deshalb **1 Cent beim Kunden** (999,99 € statt
+> 1.000,00 €). Aufrunden auf 333,34 € wären 1.000,02 € — mehr, als ausgezeichnet
+> ist, und damit die schlechtere Richtung. Cent-genaue 1.000 € bräuchten eine
+> ungleiche erste Rate über eine Stripe Subscription Schedule.
+
+Die Ratenabos beenden sich selbst: `endInstallmentPlanAfterLastRate` setzt
+`cancel_at` auf das Ende der letzten Rate (+5 Tage Puffer), sobald die erste
+Zahlung bestätigt ist.
 
 **Setup — in dieser Reihenfolge, bevor die URL an Kunden geht:**
 
@@ -154,9 +170,11 @@ bleibt 1.000 €.
    Text — ein Verkauf an Verbraucher ohne diese Dokumente ist nicht zulässig.
 3. **Verkaufstexte prüfen**: Name, Beschreibung und Leistungen in
    `lib/checkout.ts` sind Platzhalter und gehören durch die echten ersetzt.
-4. **Stripe einrichten** — `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`,
-   `STRIPE_PRICE_CHECKOUT_ONCE`, `STRIPE_PRICE_CHECKOUT_2X`, `STRIPE_TAX_RATE`.
-   Siehe den Preis-Hinweis unten — der Steuersatz muss **inklusive** sein.
+4. **Stripe einrichten** — `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` und die
+   drei Preise `STRIPE_PRICE_CHECKOUT_ONCE` (1.000,00 € einmalig),
+   `STRIPE_PRICE_CHECKOUT_2X` (500,00 € monatlich) und
+   `STRIPE_PRICE_CHECKOUT_3X` (333,33 € monatlich). Siehe den Steuer-Hinweis
+   unten: an keinem der Preise darf ein Steuersatz hängen.
 5. Optional: `BREVO_TPL_CHECKOUT_CONFIRMATION` auf eine Brevo-Template-ID setzen
    → automatische Bestellbestätigung. Ohne ID wird keine Mail verschickt.
 
@@ -176,9 +194,9 @@ Nach dem Deploy erreichbar unter `https://crm.voltadigital.agency/checkout`
 > **Ohne Umsatzsteuer — an den Stripe-Preisen darf kein Steuersatz hängen.**
 > `lib/checkout.ts` steht auf `vatRate: 0`. Die Seite zeigt dann nur den
 > Endbetrag, und die Server Action hängt an der Kasse bewusst keinen Steuersatz
-> an. Die Stripe-Prices (1.000 € einmalig, 500 € pro Rate) müssen deshalb ohne
-> Steuersatz und ohne automatische Steuer konfiguriert sein — sonst schlägt
-> Stripe trotzdem etwas obendrauf.
+> an. Alle drei Stripe-Prices müssen deshalb ohne Steuersatz und ohne
+> automatische Steuer konfiguriert sein — sonst schlägt Stripe trotzdem etwas
+> obendrauf.
 >
 > Wird später doch Umsatzsteuer fällig, reicht `vatRate: 0.19` plus ein
 > **inklusiver** Steuersatz in `STRIPE_TAX_RATE`: Anzeige und Aufschlüsselung

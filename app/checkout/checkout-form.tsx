@@ -7,6 +7,7 @@ import {
   chargesVat,
   findPlan,
   formatPrice,
+  planTotal,
   validateCheckout,
   type CheckoutInput,
   type FieldErrors,
@@ -220,9 +221,10 @@ export function CheckoutForm() {
       {/* ── Zahlungsmodell ───────────────────────────────────────────────── */}
       <section className="space-y-4">
         <SectionTitle step={3} title="Zahlung" />
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           {CHECKOUT_OFFER.plans.map((p) => {
             const active = values.planId === p.id;
+            const total = planTotal(p);
             return (
               <label
                 key={p.id}
@@ -246,11 +248,11 @@ export function CheckoutForm() {
                     <div className="text-lg font-bold font-display text-[color:var(--color-accent)] mt-0.5">
                       {p.installments > 1
                         ? `${p.installments} × ${formatPrice(p.installmentAmount)}`
-                        : formatPrice(p.total)}
+                        : formatPrice(total)}
                     </div>
                     {(p.installments > 1 || WITH_VAT) && (
                       <div className="text-[11px] text-[color:var(--color-muted)]">
-                        {p.installments > 1 ? `${formatPrice(p.total)} gesamt` : ""}
+                        {p.installments > 1 ? `${formatPrice(total)} gesamt` : ""}
                         {p.installments > 1 && WITH_VAT ? "," : ""}
                         {VAT_SUFFIX}
                       </div>
@@ -311,7 +313,7 @@ export function CheckoutForm() {
 
         <div className="flex items-baseline justify-between gap-3 border-t border-[color:var(--color-border)] pt-4">
           <span className="text-sm text-[color:var(--color-muted)]">Gesamtbetrag{VAT_SUFFIX}</span>
-          <span className="text-xl font-bold font-display tabular-nums">{formatPrice(plan.total)}</span>
+          <span className="text-xl font-bold font-display tabular-nums">{formatPrice(planTotal(plan))}</span>
         </div>
 
         <button
@@ -325,7 +327,7 @@ export function CheckoutForm() {
             </>
           ) : (
             <>
-              Zahlungspflichtig bestellen · {formatPrice(plan.total)}
+              Zahlungspflichtig bestellen · {formatPrice(planTotal(plan))}
             </>
           )}
         </button>

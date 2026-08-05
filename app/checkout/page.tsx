@@ -89,17 +89,21 @@ export default function CheckoutPage() {
                   </div>
                 </>
               )}
+              {/* "Paketpreis", nicht "Gesamtbetrag": diese Übersicht ist statisch,
+                  während das Zahlungsmodell im Formular gewählt wird. Bei 3 Raten
+                  liegt die Summe der Abbuchungen einen Cent darunter — der für den
+                  gewählten Plan gültige Betrag steht direkt über dem Bestell-Button. */}
               <div
                 className={`flex justify-between font-semibold ${
                   withVat ? "pt-2 border-t border-[color:var(--color-border)] mt-2" : ""
                 }`}
               >
-                <dt>Gesamtbetrag</dt>
+                <dt>Paketpreis</dt>
                 <dd className="tabular-nums">{formatPrice(CHECKOUT_OFFER.price)}</dd>
               </div>
               <div className="text-right text-xs text-[color:var(--color-muted)]">
                 Endpreis — es kommen keine weiteren Kosten dazu.
-                {!withVat && ` ${NO_VAT_NOTE}`}
+                {!withVat && ` ${NO_VAT_NOTE}`} Ratenzahlung wählbar.
               </div>
             </dl>
           </div>

@@ -9,6 +9,7 @@ import {
   chargesVat,
   findPlan,
   makeOrderReference,
+  planTotal,
   validateCheckout,
   type CheckoutInput,
   type FieldErrors,
@@ -113,7 +114,7 @@ export async function submitCheckout(raw: CheckoutInput): Promise<CheckoutResult
       offer_name: CHECKOUT_OFFER.name,
       plan_id: plan.id,
       installments: plan.installments,
-      amount_gross: plan.total,
+      amount_gross: planTotal(plan),
       vat_rate: CHECKOUT_OFFER.vatRate,
       currency: CHECKOUT_OFFER.currency,
       first_name: input.firstName,
@@ -291,10 +292,11 @@ async function assertInclusiveTaxRate(taxRateId: string, plan: PaymentPlan): Pro
   };
 
   if (rate.inclusive !== true) {
-    const wrong = Math.round(plan.total * (1 + CHECKOUT_OFFER.vatRate) * 100) / 100;
+    const total = planTotal(plan);
+    const wrong = Math.round(total * (1 + CHECKOUT_OFFER.vatRate) * 100) / 100;
     throw new Error(
       `STRIPE_TAX_RATE ${taxRateId} ist nicht inclusive — Stripe würde ${wrong} € statt ` +
-        `${plan.total} € abbuchen. In Stripe einen Steuersatz mit "inklusive" anlegen ` +
+        `${total} € abbuchen. In Stripe einen Steuersatz mit "inklusive" anlegen ` +
         `und die Env darauf zeigen lassen.`,
     );
   }
