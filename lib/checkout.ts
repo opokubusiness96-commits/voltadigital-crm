@@ -22,8 +22,12 @@ export type PaymentPlan = {
   /**
    * Name der Env-Variable mit der Stripe-Price-ID. Der abgerechnete Betrag steht
    * damit in Stripe, nicht im Code — die Zahlen hier sind nur die Anzeige.
-   * Beide Preise sind `tax_behavior: inclusive`, 1.000 € sind also brutto inkl.
-   * 19 % MwSt (Konvention des Kontos, siehe Klarheitssessions).
+   *
+   * WICHTIG: Der Betrag im Stripe-Price ist der BRUTTO-Endbetrag (1.000 € bzw.
+   * 500 € pro Rate). Damit Stripe daraus nicht 1.190 € macht, MUSS der Steuersatz
+   * hinter STRIPE_TAX_RATE `inclusive: true` sein — die 19 % sind im Betrag
+   * enthalten und werden nur herausgerechnet. createStripeCheckout prüft das vor
+   * jeder Session und bricht ab, statt zu viel abzubuchen.
    */
   priceEnv: string;
   /**
@@ -49,12 +53,12 @@ export type CheckoutOffer = {
   /** Dauer einer Session in Minuten */
   sessionMinutes: number;
   /**
-   * NETTO-Preis in EUR. Die MwSt kommt oben drauf (B2B-Auszeichnung) — der
-   * Kunde zahlt `grossPrice()`. In Stripe hängt am Preis ein 19-%-Steuersatz,
-   * der Betrag dort ist ebenfalls netto.
+   * BRUTTO-Endpreis in EUR — das, was der Kunde zahlt. Die MwSt ist enthalten
+   * und kommt NICHT obendrauf. Netto und enthaltene Steuer werden daraus
+   * gerechnet (`netPrice()` / `vatAmount()`).
    */
   price: number;
-  /** 0.19 = 19 % MwSt */
+  /** 0.19 = 19 % MwSt, im Preis bereits enthalten */
   vatRate: number;
   currency: "EUR";
   includes: string[];
@@ -88,8 +92,8 @@ export const CHECKOUT_OFFER: CheckoutOffer = {
       label: "Einmalzahlung",
       hint: "Komplett in einer Zahlung — Karte, Klarna, SEPA oder Link.",
       installments: 1,
-      installmentAmount: 1190,
-      total: 1190,
+      installmentAmount: 1000,
+      total: 1000,
       priceEnv: "STRIPE_PRICE_CHECKOUT_ONCE",
       mode: "payment",
     },
@@ -98,8 +102,8 @@ export const CHECKOUT_OFFER: CheckoutOffer = {
       label: "2 Raten",
       hint: "Erste Rate sofort, zweite Rate 30 Tage später. Kein Aufschlag.",
       installments: 2,
-      installmentAmount: 595,
-      total: 1190,
+      installmentAmount: 500,
+      total: 1000,
       priceEnv: "STRIPE_PRICE_CHECKOUT_2X",
       // Karte oder SEPA-Lastschrift: Klarna kann keine wiederkehrende Zahlung,
       // Stripe blendet es im Raten-Checkout deshalb selbst aus.
@@ -112,20 +116,24 @@ export function findPlan(id: string | null | undefined): PaymentPlan | null {
   return CHECKOUT_OFFER.plans.find((p) => p.id === id) ?? null;
 }
 
-/** Netto-Preis je Session — Ankerpreis neben der Gesamtsumme. */
+/** Brutto-Preis je Session — Ankerpreis neben der Gesamtsumme. */
 export function pricePerSession(offer: CheckoutOffer = CHECKOUT_OFFER): number {
   return Math.round((offer.price / offer.sessionCount) * 100) / 100;
 }
 
-/** MwSt-Betrag auf den Nettopreis (kaufmännisch auf Cent gerundet). */
-export function vatAmount(offer: CheckoutOffer = CHECKOUT_OFFER): number {
-  return Math.round(offer.price * offer.vatRate * 100) / 100;
+/** Nettoanteil des Bruttopreises (für die Rechnungs-Aufschlüsselung). */
+export function netPrice(offer: CheckoutOffer = CHECKOUT_OFFER): number {
+  return vatSplit(offer.price, offer.vatRate).net;
 }
 
-/** Was der Kunde tatsächlich zahlt: netto + MwSt. */
-export function grossPrice(offer: CheckoutOffer = CHECKOUT_OFFER): number {
-  return Math.round((offer.price + vatAmount(offer)) * 100) / 100;
+/** Im Bruttopreis ENTHALTENE MwSt — kommt nicht obendrauf. */
+export function vatAmount(offer: CheckoutOffer = CHECKOUT_OFFER): number {
+  return vatSplit(offer.price, offer.vatRate).vat;
 }
+
+// Kein grossPrice() mehr: `price` IST der Bruttobetrag. Eine Funktion, die nur
+// ihren eigenen Eingabewert zurückgibt, verleitet zu der Annahme, der Preis wäre
+// netto — genau die Verwechslung, die hier 190 € gekostet hätte.
 
 // ── Rechtstexte ──────────────────────────────────────────────────────────────
 // Ein Checkout, der an Verbraucher verkauft, muss AGB, Datenschutzerklärung,

@@ -3,7 +3,7 @@
 import { headers } from "next/headers";
 
 import { getSupabaseServiceRole } from "@/lib/supabase/server";
-import { stripePost } from "@/lib/stripe";
+import { stripeGet, stripePost } from "@/lib/stripe";
 import {
   CHECKOUT_OFFER,
   findPlan,
@@ -167,9 +167,11 @@ export async function submitCheckout(raw: CheckoutInput): Promise<CheckoutResult
  * angelegt, damit Rechnung und Beleg die Adresse tragen, die er hier eingegeben
  * hat — er muss sie bei Stripe nicht ein zweites Mal tippen.
  *
- * Die 19 % MwSt hängen als Stripe-Steuersatz an der Position (zzgl.), der Preis
- * selbst ist netto. Stripe zeigt dem Käufer damit Netto, MwSt und Gesamtbetrag
- * getrennt an — und rechnet exakt dieselbe Summe wie unsere Bestellübersicht.
+ * Der Preis im Stripe-Price ist der BRUTTO-Endbetrag, der Steuersatz muss
+ * deshalb `inclusive` sein: Stripe rechnet die 19 % dann heraus statt sie
+ * draufzuschlagen und weist Netto, MwSt und Gesamtbetrag getrennt aus — exakt
+ * dieselbe Summe wie unsere Bestellübersicht. assertInclusiveTaxRate erzwingt
+ * das, bevor eine Kasse aufgeht.
  */
 async function createStripeCheckout(
   plan: PaymentPlan,
@@ -182,6 +184,7 @@ async function createStripeCheckout(
 
   const taxRate = process.env.STRIPE_TAX_RATE;
   if (!taxRate) throw new Error("STRIPE_TAX_RATE fehlt — MwSt-Satz nicht hinterlegt");
+  await assertInclusiveTaxRate(taxRate, plan);
 
   const origin = await currentOrigin();
 
@@ -249,6 +252,49 @@ async function createStripeCheckout(
 
   if (!session.url) throw new Error("Stripe lieferte keine Checkout-URL");
   return session.url;
+}
+
+// Einmal pro Prozess geprüfte Steuersätze. Der Satz ändert sich nicht zwischen
+// zwei Bestellungen — ein zusätzlicher Stripe-Request pro Kasse wäre verschenkt.
+const verifiedInclusiveTaxRates = new Set<string>();
+
+/**
+ * Sicherung gegen den teuersten denkbaren Konfigurationsfehler: Die Seite zeichnet
+ * Endpreise aus (1.000 € inkl. MwSt). Ist der Stripe-Steuersatz NICHT `inclusive`,
+ * schlägt Stripe die 19 % oben drauf und bucht 1.190 € ab — der Käufer zahlt
+ * 190 € mehr, als er zugestimmt hat.
+ *
+ * Deshalb: lieber die Kasse gar nicht öffnen (der Käufer sieht "Zahlungsseite
+ * konnte nicht geöffnet werden") als den falschen Betrag einziehen.
+ */
+async function assertInclusiveTaxRate(taxRateId: string, plan: PaymentPlan): Promise<void> {
+  if (verifiedInclusiveTaxRates.has(taxRateId)) return;
+
+  const rate = (await stripeGet(`/tax_rates/${taxRateId}`)) as {
+    inclusive?: boolean;
+    percentage?: number;
+  };
+
+  if (rate.inclusive !== true) {
+    const wrong = Math.round(plan.total * (1 + CHECKOUT_OFFER.vatRate) * 100) / 100;
+    throw new Error(
+      `STRIPE_TAX_RATE ${taxRateId} ist nicht inclusive — Stripe würde ${wrong} € statt ` +
+        `${plan.total} € abbuchen. In Stripe einen Steuersatz mit "inklusive" anlegen ` +
+        `und die Env darauf zeigen lassen.`,
+    );
+  }
+
+  // Kein Abbruch: ein abweichender Satz ändert nur die Netto/MwSt-Aufteilung auf
+  // der Rechnung, nicht den Gesamtbetrag. Sichtbar sein soll es trotzdem.
+  const expected = Math.round(CHECKOUT_OFFER.vatRate * 100);
+  if (typeof rate.percentage === "number" && Math.round(rate.percentage) !== expected) {
+    console.error(
+      `checkout: Stripe-Steuersatz ${rate.percentage} % weicht von vatRate ${expected} % ab — ` +
+        `die Aufschlüsselung auf der Seite passt dann nicht zur Rechnung`,
+    );
+  }
+
+  verifiedInclusiveTaxRates.add(taxRateId);
 }
 
 /** ISO-Ländercode für Stripe — das Formular bietet genau diese drei an. */

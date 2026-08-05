@@ -153,9 +153,9 @@ entspricht 200 € pro Session). Zahlbar als Einmalzahlung oder in 2 Raten à 50
    Text — ein Verkauf an Verbraucher ohne diese Dokumente ist nicht zulässig.
 3. **Verkaufstexte prüfen**: Name, Beschreibung und Leistungen in
    `lib/checkout.ts` sind Platzhalter und gehören durch die echten ersetzt.
-4. Optional: `CHECKOUT_BANK_*` setzen → die Danke-Seite zeigt die Bankdaten
-   direkt an. Ohne IBAN steht dort nur "Zahlungsdaten kommen mit der Rechnung
-   per E-Mail".
+4. **Stripe einrichten** — `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`,
+   `STRIPE_PRICE_CHECKOUT_ONCE`, `STRIPE_PRICE_CHECKOUT_2X`, `STRIPE_TAX_RATE`.
+   Siehe den Preis-Hinweis unten — der Steuersatz muss **inklusive** sein.
 5. Optional: `BREVO_TPL_CHECKOUT_CONFIRMATION` auf eine Brevo-Template-ID setzen
    → automatische Bestellbestätigung. Ohne ID wird keine Mail verschickt.
 
@@ -165,20 +165,24 @@ Nach dem Deploy erreichbar unter `https://crm.voltadigital.agency/checkout`
 **Was beim Absenden passiert** (`app/checkout/actions.ts`):
 
 - Bestellung landet in `checkout_orders` mit Status `offen` und einer
-  Bestellnummer (`JD-2608-K3F9`), die zugleich der Verwendungszweck ist
-- Lead in der `jerome`-Org wird per E-Mail gesucht: vorhanden → Stage `won` +
-  `value_estimate = 1000`; sonst wird ein neuer Lead angelegt
-- Activity am Lead protokolliert die Bestellung
+  Bestellnummer (`JD-2608-K3F9`)
+- Der Käufer geht zur Stripe-Kasse (Karte, Klarna, SEPA, Link)
+- Erst wenn Stripe die Zahlung meldet (`app/checkout/fulfill.ts`), entstehen
+  Lead (Stage `won`, `value_estimate = 1000`), Activity und Bestätigungs-Mail —
+  ein Abbruch an der Kasse hinterlässt also keinen gewonnenen Deal
 - UTMs aus der URL (`/checkout?utm_source=meta&…`) wandern an Bestellung + Lead
 
-> **Kein Payment-Provider angebunden.** Die Seite erfasst eine verbindliche
-> Bestellung, kassiert aber nicht — bezahlt wird per Überweisung, der Status
-> wird in `checkout_orders.status` gepflegt. Für Stripe/PayPal später: der Betrag
-> wird bereits serverseitig aus `lib/checkout.ts` aufgelöst (nie aus dem
-> Formular), die Session-Erzeugung kann direkt vor dem Insert eingehängt werden.
+> **Preise sind BRUTTO — der Stripe-Steuersatz muss `inklusive` sein.**
+> Die Seite zeichnet 1.000 € als Endpreis aus. Die Beträge in den Stripe-Prices
+> sind ebenfalls brutto (1.000 € einmalig bzw. 500 € pro Rate). Hängt daran ein
+> *exklusiver* Steuersatz, schlägt Stripe 19 % obendrauf und bucht 1.190 € ab —
+> 190 € mehr, als der Käufer bestätigt hat. `assertInclusiveTaxRate` in
+> `app/checkout/actions.ts` liest den Satz deshalb vor jeder Kasse bei Stripe und
+> bricht ab, statt den falschen Betrag einzuziehen.
 
-Preis, Leistungen und Ratenmodelle stehen in `lib/checkout.ts` — eine Änderung
-dort reicht, Seite und Server Action lesen beide daraus.
+Preis, Leistungen und Ratenmodelle stehen in `lib/checkout.ts` — für die
+Anzeige reicht eine Änderung dort. Der **abgerechnete** Betrag steht in Stripe:
+eine Preisänderung braucht immer beides.
 
 ---
 
