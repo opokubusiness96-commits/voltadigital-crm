@@ -19,6 +19,25 @@ export const metadata: Metadata = {
   description: `${CHECKOUT_OFFER.tagline} · ${formatPrice(CHECKOUT_OFFER.price)}`,
 };
 
+/**
+ * Nur Zahlungsmodelle anbieten, für die ein Stripe-Price hinterlegt ist. Ein
+ * Modell ohne `priceEnv` würde an der Kasse scheitern — auf einer laufenden
+ * Verkaufsseite ist eine fehlende Option besser als eine kaputte.
+ *
+ * Ist gar keiner gesetzt (lokal, DEV_FAKE_AUTH), werden alle gezeigt: dort geht
+ * die Bestellung ohnehin nie zu Stripe.
+ */
+function bookablePlans() {
+  const configured = CHECKOUT_OFFER.plans.filter((p) => !!process.env[p.priceEnv]);
+  if (configured.length === 0) return CHECKOUT_OFFER.plans;
+  for (const p of CHECKOUT_OFFER.plans) {
+    if (!configured.includes(p)) {
+      console.warn(`checkout: Zahlungsmodell "${p.id}" ausgeblendet — ${p.priceEnv} fehlt`);
+    }
+  }
+  return configured;
+}
+
 export default function CheckoutPage() {
   // Der ausgezeichnete Preis ist der Endbetrag. Ohne Umsatzsteuer (vatRate 0)
   // entfällt die Aufschlüsselung komplett — der Kunde sieht genau eine Zahl.
@@ -56,7 +75,7 @@ export default function CheckoutPage() {
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_22rem] gap-8 lg:gap-12 items-start">
         {/* Formular */}
         <div className="order-2 lg:order-1">
-          <CheckoutForm />
+          <CheckoutForm plans={bookablePlans()} />
         </div>
 
         {/* Bestellübersicht */}
