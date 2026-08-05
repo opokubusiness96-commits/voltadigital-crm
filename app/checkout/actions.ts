@@ -185,6 +185,7 @@ async function createStripeCheckout(
 ): Promise<string> {
   const priceId = process.env[plan.priceEnv];
   if (!priceId) throw new Error(`${plan.priceEnv} fehlt — kein Stripe-Price hinterlegt`);
+  await assertPriceMatchesPlan(priceId, plan);
 
   // Ohne ausgewiesene Umsatzsteuer (vatRate 0) hängt an der Kasse KEIN
   // Steuersatz — der Kunde zahlt glatt den Preis aus dem Stripe-Price.
@@ -270,9 +271,63 @@ async function createStripeCheckout(
   return session.url;
 }
 
-// Einmal pro Prozess geprüfte Steuersätze. Der Satz ändert sich nicht zwischen
-// zwei Bestellungen — ein zusätzlicher Stripe-Request pro Kasse wäre verschenkt.
+// Einmal pro Prozess geprüfte Stripe-Objekte. Preis und Steuersatz ändern sich
+// nicht zwischen zwei Bestellungen — ein Request pro Kasse wäre verschenkt.
+const verifiedPrices = new Set<string>();
 const verifiedInclusiveTaxRates = new Set<string>();
+
+/**
+ * Der Betrag auf der Seite kommt aus `lib/checkout.ts`, abgebucht wird der
+ * Betrag aus dem Stripe-Price. Das sind zwei Quellen, die auseinanderlaufen
+ * können — genau das ist hier schon einmal passiert (Seite 1.000 €, Kasse
+ * 1.190 €).
+ *
+ * Deshalb: vor der ersten Kasse den Preis bei Stripe lesen und mit dem
+ * ausgezeichneten Ratenbetrag vergleichen. Bei Abweichung geht die Kasse nicht
+ * auf — der Käufer sieht "Zahlungsseite konnte nicht geöffnet werden", statt
+ * einen anderen Betrag zu zahlen, als er bestätigt hat.
+ */
+async function assertPriceMatchesPlan(priceId: string, plan: PaymentPlan): Promise<void> {
+  if (verifiedPrices.has(priceId)) return;
+
+  const price = (await stripeGet(`/prices/${priceId}`)) as {
+    unit_amount?: number | null;
+    currency?: string;
+    active?: boolean;
+    recurring?: { interval?: string } | null;
+  };
+
+  const expectedCents = Math.round(plan.installmentAmount * 100);
+  if (price.unit_amount !== expectedCents) {
+    const actual = typeof price.unit_amount === "number" ? price.unit_amount / 100 : "unbekannt";
+    throw new Error(
+      `${plan.priceEnv} (${priceId}) steht auf ${actual} €, die Seite zeigt aber ` +
+        `${plan.installmentAmount} € pro Rate. Betrag in Stripe korrigieren oder ` +
+        `installmentAmount in lib/checkout.ts anpassen.`,
+    );
+  }
+
+  if (price.currency && price.currency.toLowerCase() !== CHECKOUT_OFFER.currency.toLowerCase()) {
+    throw new Error(`${plan.priceEnv} (${priceId}) ist in ${price.currency}, erwartet wird EUR`);
+  }
+
+  // Raten brauchen einen wiederkehrenden Preis, die Einmalzahlung darf keiner sein —
+  // sonst nimmt Stripe die Session gar nicht erst an bzw. bucht dauerhaft ab.
+  const isRecurring = !!price.recurring;
+  const shouldRecur = plan.mode === "subscription";
+  if (isRecurring !== shouldRecur) {
+    throw new Error(
+      `${plan.priceEnv} (${priceId}) ist ${isRecurring ? "wiederkehrend" : "einmalig"}, ` +
+        `der Plan "${plan.id}" braucht ${shouldRecur ? "einen monatlichen" : "einen einmaligen"} Preis`,
+    );
+  }
+
+  if (price.active === false) {
+    throw new Error(`${plan.priceEnv} (${priceId}) ist in Stripe archiviert`);
+  }
+
+  verifiedPrices.add(priceId);
+}
 
 /**
  * Sicherung gegen den teuersten denkbaren Konfigurationsfehler: Die Seite zeichnet
