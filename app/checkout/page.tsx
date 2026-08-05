@@ -3,8 +3,10 @@ import { Check, Clock, ShieldCheck, Video } from "lucide-react";
 import {
   CHECKOUT_OFFER,
   CONTACT_EMAIL,
+  chargesVat,
   formatPrice,
   netPrice,
+  NO_VAT_NOTE,
   pricePerSession,
   vatAmount,
 } from "@/lib/checkout";
@@ -14,13 +16,13 @@ import { LegalFooter } from "./legal";
 // Öffentliche Seite — kein Login (siehe PUBLIC_PATHS in proxy.ts).
 export const metadata: Metadata = {
   title: `Checkout — ${CHECKOUT_OFFER.name}`,
-  description: `${CHECKOUT_OFFER.tagline} · ${formatPrice(CHECKOUT_OFFER.price)} inkl. MwSt.`,
+  description: `${CHECKOUT_OFFER.tagline} · ${formatPrice(CHECKOUT_OFFER.price)}`,
 };
 
 export default function CheckoutPage() {
-  // Der ausgezeichnete Preis ist der Endbetrag; Netto und MwSt werden daraus
-  // herausgerechnet. Deshalb "inkl."/"enthaltene" statt "zzgl." — sonst liest
-  // es sich, als käme die Steuer noch obendrauf.
+  // Der ausgezeichnete Preis ist der Endbetrag. Ohne Umsatzsteuer (vatRate 0)
+  // entfällt die Aufschlüsselung komplett — der Kunde sieht genau eine Zahl.
+  const withVat = chargesVat();
   const net = netPrice();
   const vat = vatAmount();
   const vatPercent = Math.round(CHECKOUT_OFFER.vatRate * 100);
@@ -69,25 +71,35 @@ export default function CheckoutPage() {
                 {formatPrice(CHECKOUT_OFFER.price)}
               </div>
               <div className="text-xs text-[color:var(--color-muted)] mt-1">
-                inkl. {vatPercent} % MwSt. · {formatPrice(pricePerSession())} pro Session
+                {withVat ? `inkl. ${vatPercent} % MwSt. · ` : ""}
+                {formatPrice(pricePerSession())} pro Session
               </div>
             </div>
 
             <dl className="mt-4 space-y-1.5 border-t border-[color:var(--color-border)] pt-4 text-sm">
-              <div className="flex justify-between text-[color:var(--color-muted)]">
-                <dt>Nettobetrag</dt>
-                <dd className="tabular-nums">{formatPrice(net)}</dd>
-              </div>
-              <div className="flex justify-between text-[color:var(--color-muted)]">
-                <dt>enthaltene MwSt. ({vatPercent} %)</dt>
-                <dd className="tabular-nums">{formatPrice(vat)}</dd>
-              </div>
-              <div className="flex justify-between pt-2 font-semibold border-t border-[color:var(--color-border)] mt-2">
+              {withVat && (
+                <>
+                  <div className="flex justify-between text-[color:var(--color-muted)]">
+                    <dt>Nettobetrag</dt>
+                    <dd className="tabular-nums">{formatPrice(net)}</dd>
+                  </div>
+                  <div className="flex justify-between text-[color:var(--color-muted)]">
+                    <dt>enthaltene MwSt. ({vatPercent} %)</dt>
+                    <dd className="tabular-nums">{formatPrice(vat)}</dd>
+                  </div>
+                </>
+              )}
+              <div
+                className={`flex justify-between font-semibold ${
+                  withVat ? "pt-2 border-t border-[color:var(--color-border)] mt-2" : ""
+                }`}
+              >
                 <dt>Gesamtbetrag</dt>
                 <dd className="tabular-nums">{formatPrice(CHECKOUT_OFFER.price)}</dd>
               </div>
               <div className="text-right text-xs text-[color:var(--color-muted)]">
                 Endpreis — es kommen keine weiteren Kosten dazu.
+                {!withVat && ` ${NO_VAT_NOTE}`}
               </div>
             </dl>
           </div>

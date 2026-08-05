@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Loader2, Lock } from "lucide-react";
 import {
   CHECKOUT_OFFER,
+  chargesVat,
   findPlan,
   formatPrice,
   validateCheckout,
@@ -30,7 +31,10 @@ const EMPTY: CheckoutInput = {
   acceptWithdrawal: false,
 };
 
+const WITH_VAT = chargesVat();
 const VAT_PERCENT = Math.round(CHECKOUT_OFFER.vatRate * 100);
+// Ohne Umsatzsteuer gibt es nichts zu erklären — der Preis ist die einzige Zahl.
+const VAT_SUFFIX = WITH_VAT ? ` inkl. ${VAT_PERCENT} % MwSt.` : "";
 
 const INPUT_CLS =
   "w-full bg-[color:var(--color-surface)] border border-[color:var(--color-border)] rounded-md px-3 py-2.5 outline-none focus:border-[color:var(--color-accent)] disabled:opacity-60";
@@ -244,10 +248,13 @@ export function CheckoutForm() {
                         ? `${p.installments} × ${formatPrice(p.installmentAmount)}`
                         : formatPrice(p.total)}
                     </div>
-                    <div className="text-[11px] text-[color:var(--color-muted)]">
-                      {p.installments > 1 ? `${formatPrice(p.total)} gesamt, ` : ""}
-                      inkl. {VAT_PERCENT} % MwSt.
-                    </div>
+                    {(p.installments > 1 || WITH_VAT) && (
+                      <div className="text-[11px] text-[color:var(--color-muted)]">
+                        {p.installments > 1 ? `${formatPrice(p.total)} gesamt` : ""}
+                        {p.installments > 1 && WITH_VAT ? "," : ""}
+                        {VAT_SUFFIX}
+                      </div>
+                    )}
                     <p className="text-xs text-[color:var(--color-muted)] mt-1 leading-snug">{p.hint}</p>
                   </div>
                 </div>
@@ -258,8 +265,8 @@ export function CheckoutForm() {
         {errors.planId && <p className="text-sm text-[color:var(--color-red)]">{errors.planId}</p>}
 
         <p className="text-xs text-[color:var(--color-muted)] leading-relaxed">
-          Alle Beträge sind Endpreise inkl. {VAT_PERCENT} % MwSt. — es kommen keine weiteren Kosten dazu.
-          Bezahlt wird sicher über <strong className="text-[color:var(--color-text)]">Stripe</strong> — Karte,
+          Alle Beträge sind Endpreise{VAT_SUFFIX} — es kommen keine weiteren Kosten dazu. Bezahlt wird
+          sicher über <strong className="text-[color:var(--color-text)]">Stripe</strong> — Karte,
           Klarna, SEPA-Lastschrift oder Link. Im nächsten Schritt wählst du die Zahlungsart, danach bekommst
           du Bestätigung und Rechnung per E-Mail.
         </p>
@@ -303,9 +310,7 @@ export function CheckoutForm() {
         )}
 
         <div className="flex items-baseline justify-between gap-3 border-t border-[color:var(--color-border)] pt-4">
-          <span className="text-sm text-[color:var(--color-muted)]">
-            Gesamtbetrag inkl. {VAT_PERCENT} % MwSt.
-          </span>
+          <span className="text-sm text-[color:var(--color-muted)]">Gesamtbetrag{VAT_SUFFIX}</span>
           <span className="text-xl font-bold font-display tabular-nums">{formatPrice(plan.total)}</span>
         </div>
 

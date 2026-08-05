@@ -139,9 +139,10 @@ der Webhook übernimmt sie automatisch in die `leads` Tabelle.
 ## 9. Checkout-Seite `/checkout`
 
 Öffentliche Verkaufsseite für das **5er-Paket 1:1 Sessions — 5 × 60 Minuten mit
-Jerome Deres, 1.000 € brutto** (inkl. 19 % MwSt: 840,34 € netto + 159,66 € MwSt,
-entspricht 200 € pro Session). Zahlbar als Einmalzahlung oder in 2 Raten à 500 €
-— **ohne Ratenaufschlag**, die Summe bleibt 1.000 €.
+Jerome Deres, 1.000 €** (200 € pro Session). **Keine Umsatzsteuer**: der Kunde
+zahlt glatt 1.000 €, es gibt keine Netto/MwSt-Aufschlüsselung. Zahlbar als
+Einmalzahlung oder in 2 Raten à 500 € — **ohne Ratenaufschlag**, die Summe
+bleibt 1.000 €.
 
 **Setup — in dieser Reihenfolge, bevor die URL an Kunden geht:**
 
@@ -172,13 +173,23 @@ Nach dem Deploy erreichbar unter `https://crm.voltadigital.agency/checkout`
   ein Abbruch an der Kasse hinterlässt also keinen gewonnenen Deal
 - UTMs aus der URL (`/checkout?utm_source=meta&…`) wandern an Bestellung + Lead
 
-> **Preise sind BRUTTO — der Stripe-Steuersatz muss `inklusive` sein.**
-> Die Seite zeichnet 1.000 € als Endpreis aus. Die Beträge in den Stripe-Prices
-> sind ebenfalls brutto (1.000 € einmalig bzw. 500 € pro Rate). Hängt daran ein
-> *exklusiver* Steuersatz, schlägt Stripe 19 % obendrauf und bucht 1.190 € ab —
-> 190 € mehr, als der Käufer bestätigt hat. `assertInclusiveTaxRate` in
-> `app/checkout/actions.ts` liest den Satz deshalb vor jeder Kasse bei Stripe und
-> bricht ab, statt den falschen Betrag einzuziehen.
+> **Ohne Umsatzsteuer — an den Stripe-Preisen darf kein Steuersatz hängen.**
+> `lib/checkout.ts` steht auf `vatRate: 0`. Die Seite zeigt dann nur den
+> Endbetrag, und die Server Action hängt an der Kasse bewusst keinen Steuersatz
+> an. Die Stripe-Prices (1.000 € einmalig, 500 € pro Rate) müssen deshalb ohne
+> Steuersatz und ohne automatische Steuer konfiguriert sein — sonst schlägt
+> Stripe trotzdem etwas obendrauf.
+>
+> Wird später doch Umsatzsteuer fällig, reicht `vatRate: 0.19` plus ein
+> **inklusiver** Steuersatz in `STRIPE_TAX_RATE`: Anzeige und Aufschlüsselung
+> schalten sich mit, der Preis bleibt der Endbetrag. Ein *exklusiver* Satz würde
+> aus 1.000 € an der Kasse 1.190 € machen — `assertInclusiveTaxRate` prüft das
+> vor jeder Kasse bei Stripe und bricht ab, statt zu viel einzuziehen.
+
+Als Kleinunternehmer gehört der Grund für die fehlende Umsatzsteuer auf die
+Seite — Wortlaut über `NEXT_PUBLIC_CHECKOUT_VAT_NOTE` setzen (z. B. „Gemäß § 19
+UStG wird keine Umsatzsteuer berechnet."). Ohne die Env steht dort nur
+„Keine Umsatzsteuer ausgewiesen."
 
 Preis, Leistungen und Ratenmodelle stehen in `lib/checkout.ts` — für die
 Anzeige reicht eine Änderung dort. Der **abgerechnete** Betrag steht in Stripe:

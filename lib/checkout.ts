@@ -53,12 +53,20 @@ export type CheckoutOffer = {
   /** Dauer einer Session in Minuten */
   sessionMinutes: number;
   /**
-   * BRUTTO-Endpreis in EUR — das, was der Kunde zahlt. Die MwSt ist enthalten
-   * und kommt NICHT obendrauf. Netto und enthaltene Steuer werden daraus
-   * gerechnet (`netPrice()` / `vatAmount()`).
+   * ENDPREIS in EUR — genau der Betrag, den der Kunde zahlt. Nichts kommt
+   * obendrauf.
    */
   price: number;
-  /** 0.19 = 19 % MwSt, im Preis bereits enthalten */
+  /**
+   * Umsatzsteuersatz. **0 = es wird keine Umsatzsteuer ausgewiesen** (z. B.
+   * Kleinunternehmerregelung § 19 UStG): Die Seite zeigt dann weder eine
+   * Netto/Steuer-Aufteilung noch einen MwSt-Hinweis, und an der Stripe-Kasse
+   * hängt kein Steuersatz — der Kunde zahlt glatt `price`.
+   *
+   * Wird später doch Umsatzsteuer fällig, reicht hier 0.19 — Anzeige,
+   * Aufschlüsselung und der Stripe-Steuersatz schalten sich mit. Der Preis
+   * bleibt dabei der Endbetrag, die Steuer ist dann darin enthalten.
+   */
   vatRate: number;
   currency: "EUR";
   includes: string[];
@@ -77,7 +85,7 @@ export const CHECKOUT_OFFER: CheckoutOffer = {
   sessionCount: 5,
   sessionMinutes: 60,
   price: 1000,
-  vatRate: 0.19,
+  vatRate: 0,
   currency: "EUR",
   includes: [
     "5 × 60 Minuten 1:1 Session mit Jerome (per Zoom)",
@@ -116,22 +124,38 @@ export function findPlan(id: string | null | undefined): PaymentPlan | null {
   return CHECKOUT_OFFER.plans.find((p) => p.id === id) ?? null;
 }
 
-/** Brutto-Preis je Session — Ankerpreis neben der Gesamtsumme. */
+/** Preis je Session — Ankerpreis neben der Gesamtsumme. */
 export function pricePerSession(offer: CheckoutOffer = CHECKOUT_OFFER): number {
   return Math.round((offer.price / offer.sessionCount) * 100) / 100;
 }
 
-/** Nettoanteil des Bruttopreises (für die Rechnungs-Aufschlüsselung). */
+/**
+ * Wird überhaupt Umsatzsteuer ausgewiesen? Steuert die Anzeige (Aufschlüsselung
+ * und "inkl. MwSt."-Hinweise) UND ob an der Stripe-Kasse ein Steuersatz hängt.
+ */
+export function chargesVat(offer: CheckoutOffer = CHECKOUT_OFFER): boolean {
+  return offer.vatRate > 0;
+}
+
+/** Nettoanteil des Endpreises. Ohne Umsatzsteuer identisch mit dem Preis. */
 export function netPrice(offer: CheckoutOffer = CHECKOUT_OFFER): number {
   return vatSplit(offer.price, offer.vatRate).net;
 }
 
-/** Im Bruttopreis ENTHALTENE MwSt — kommt nicht obendrauf. */
+/** Im Endpreis ENTHALTENE MwSt — kommt nicht obendrauf. Ohne Steuer: 0. */
 export function vatAmount(offer: CheckoutOffer = CHECKOUT_OFFER): number {
   return vatSplit(offer.price, offer.vatRate).vat;
 }
 
-// Kein grossPrice() mehr: `price` IST der Bruttobetrag. Eine Funktion, die nur
+/**
+ * Hinweis unter dem Preis, wenn keine Umsatzsteuer ausgewiesen wird. Wer als
+ * Kleinunternehmer verkauft, muss den Grund nennen — deshalb per Env
+ * überschreibbar, z. B. "Gemäß § 19 UStG wird keine Umsatzsteuer berechnet."
+ */
+export const NO_VAT_NOTE =
+  process.env.NEXT_PUBLIC_CHECKOUT_VAT_NOTE || "Keine Umsatzsteuer ausgewiesen.";
+
+// Kein grossPrice() mehr: `price` IST der Endbetrag. Eine Funktion, die nur
 // ihren eigenen Eingabewert zurückgibt, verleitet zu der Annahme, der Preis wäre
 // netto — genau die Verwechslung, die hier 190 € gekostet hätte.
 

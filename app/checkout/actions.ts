@@ -6,6 +6,7 @@ import { getSupabaseServiceRole } from "@/lib/supabase/server";
 import { stripeGet, stripePost } from "@/lib/stripe";
 import {
   CHECKOUT_OFFER,
+  chargesVat,
   findPlan,
   makeOrderReference,
   validateCheckout,
@@ -167,10 +168,12 @@ export async function submitCheckout(raw: CheckoutInput): Promise<CheckoutResult
  * angelegt, damit Rechnung und Beleg die Adresse tragen, die er hier eingegeben
  * hat — er muss sie bei Stripe nicht ein zweites Mal tippen.
  *
- * Der Preis im Stripe-Price ist der BRUTTO-Endbetrag, der Steuersatz muss
- * deshalb `inclusive` sein: Stripe rechnet die 19 % dann heraus statt sie
- * draufzuschlagen und weist Netto, MwSt und Gesamtbetrag getrennt aus — exakt
- * dieselbe Summe wie unsere Bestellübersicht. assertInclusiveTaxRate erzwingt
+ * Der Preis im Stripe-Price ist der ENDBETRAG (1.000 € bzw. 500 € pro Rate).
+ * Aktuell weist das Angebot keine Umsatzsteuer aus (`vatRate: 0`), es hängt
+ * deshalb kein Steuersatz an der Kasse — Stripe bucht genau diesen Betrag ab.
+ *
+ * Sollte später doch Umsatzsteuer fällig werden, muss der Satz `inclusive`
+ * sein, damit aus 1.000 € nicht 1.190 € werden; assertInclusiveTaxRate erzwingt
  * das, bevor eine Kasse aufgeht.
  */
 async function createStripeCheckout(
@@ -182,9 +185,20 @@ async function createStripeCheckout(
   const priceId = process.env[plan.priceEnv];
   if (!priceId) throw new Error(`${plan.priceEnv} fehlt — kein Stripe-Price hinterlegt`);
 
-  const taxRate = process.env.STRIPE_TAX_RATE;
-  if (!taxRate) throw new Error("STRIPE_TAX_RATE fehlt — MwSt-Satz nicht hinterlegt");
-  await assertInclusiveTaxRate(taxRate, plan);
+  // Ohne ausgewiesene Umsatzsteuer (vatRate 0) hängt an der Kasse KEIN
+  // Steuersatz — der Kunde zahlt glatt den Preis aus dem Stripe-Price.
+  let taxRate: string | null = null;
+  if (chargesVat()) {
+    taxRate = process.env.STRIPE_TAX_RATE || null;
+    if (!taxRate) throw new Error("STRIPE_TAX_RATE fehlt — MwSt-Satz nicht hinterlegt");
+    await assertInclusiveTaxRate(taxRate, plan);
+  } else if (process.env.STRIPE_TAX_RATE) {
+    // Übrig gebliebene Env nach der Umstellung: bewusst ignoriert, aber sichtbar.
+    console.warn(
+      "checkout: STRIPE_TAX_RATE ist gesetzt, das Angebot weist aber keine Umsatzsteuer aus " +
+        "(vatRate 0) — der Satz wird nicht angewendet. Env entfernen oder vatRate setzen.",
+    );
+  }
 
   const origin = await currentOrigin();
 
@@ -214,17 +228,18 @@ async function createStripeCheckout(
       mode: plan.mode,
       customer: customer.id,
       locale: "de",
-      // Preis kommt aus Stripe, Steuersatz kommt oben drauf. In Subscription-
-      // Sessions gehören die Sätze ans Abo, nicht an die Position.
+      // Der Betrag kommt aus dem Stripe-Price. Ein Steuersatz wird nur angehängt,
+      // wenn das Angebot überhaupt Umsatzsteuer ausweist — in Subscription-
+      // Sessions gehört er ans Abo, nicht an die Position.
       line_items: [
-        isSubscription
+        isSubscription || !taxRate
           ? { price: priceId, quantity: 1 }
           : { price: priceId, quantity: 1, tax_rates: [taxRate] },
       ],
       ...(isSubscription
         ? {
             subscription_data: {
-              default_tax_rates: [taxRate],
+              ...(taxRate ? { default_tax_rates: [taxRate] } : {}),
               description: `${CHECKOUT_OFFER.name} — ${plan.installments} Raten`,
               metadata: { reference, plan_id: plan.id, installments: plan.installments },
             },
