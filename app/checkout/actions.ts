@@ -2,6 +2,7 @@
 
 import { getSupabaseServiceRole } from "@/lib/supabase/server";
 import { sendBrevoEmail } from "@/lib/brevo";
+import { bankDetails } from "@/lib/checkout-bank";
 import {
   CHECKOUT_OFFER,
   findPlan,
@@ -246,6 +247,11 @@ async function upsertLead(
 /**
  * Optionale Bestätigungs-Mail über Brevo. Ohne BREVO_TPL_CHECKOUT_CONFIRMATION
  * passiert nichts — die Bestellnummer steht dann nur auf der Danke-Seite.
+ *
+ * Die Zahlungsdaten reist die Mail als Parameter mit (aus lib/checkout-bank.ts,
+ * gleiche Quelle wie die Danke-Seite) — die IBAN steht damit NICHT in der
+ * Brevo-Vorlage und lässt sich ohne Template-Bearbeitung wechseln. Fehlt sie in
+ * der Env, blendet die Vorlage den Bank-Block aus.
  */
 async function sendConfirmation(
   input: CheckoutInput,
@@ -259,6 +265,7 @@ async function sendConfirmation(
   if (!Number.isFinite(templateId) || templateId <= 0) return;
 
   const { net, vat } = vatSplit(CHECKOUT_OFFER.price, CHECKOUT_OFFER.vatRate);
+  const bank = bankDetails();
   try {
     const res = await sendBrevoEmail({
       to: { email: input.email, name: fullName },
@@ -274,6 +281,12 @@ async function sendConfirmation(
         amountGross: formatPrice(CHECKOUT_OFFER.price),
         amountNet: formatPrice(net),
         amountVat: formatPrice(vat),
+        vatRate: Math.round(CHECKOUT_OFFER.vatRate * 100),
+        // Bank-Block: die Vorlage rendert ihn nur, wenn eine IBAN ankommt.
+        bankHolder: bank?.holder ?? "",
+        bankIban: bank?.iban ?? "",
+        bankBic: bank?.bic ?? "",
+        bankName: bank?.bank ?? "",
       },
     });
     if (!res.ok) console.error("checkout: Bestätigungs-Mail fehlgeschlagen", res.error);

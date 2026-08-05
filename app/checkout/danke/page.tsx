@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { CheckCircle2 } from "lucide-react";
 import { CHECKOUT_OFFER, formatPrice } from "@/lib/checkout";
+import { bankDetails } from "@/lib/checkout-bank";
 import { LegalFooter } from "../legal";
 
 export const metadata: Metadata = {
@@ -9,21 +10,6 @@ export const metadata: Metadata = {
 };
 
 export const dynamic = "force-dynamic";
-
-// Bankdaten kommen aus der Env — bewusst KEINE Platzhalter-IBAN im Code.
-// Ohne CHECKOUT_BANK_IBAN zeigt die Seite den Hinweis, dass die Zahlungsdaten
-// mit der Rechnung per E-Mail kommen.
-function bankDetails() {
-  const iban = process.env.CHECKOUT_BANK_IBAN?.trim();
-  if (!iban) return null;
-  return {
-    // Kein Fallback: ein geratener Kontoinhaber wäre schlimmer als keine Zeile.
-    holder: process.env.CHECKOUT_BANK_HOLDER?.trim() || null,
-    iban,
-    bic: process.env.CHECKOUT_BANK_BIC?.trim() || null,
-    bank: process.env.CHECKOUT_BANK_NAME?.trim() || null,
-  };
-}
 
 export default async function CheckoutDankePage({
   searchParams,
