@@ -2,7 +2,14 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { CheckCircle2, Clock } from "lucide-react";
 
-import { CHECKOUT_OFFER, CONTACT_EMAIL, formatPrice, grossPrice, vatAmount } from "@/lib/checkout";
+import {
+  CHECKOUT_OFFER,
+  CONTACT_EMAIL,
+  chargesVat,
+  formatPrice,
+  netPrice,
+  vatAmount,
+} from "@/lib/checkout";
 import { stripeGet } from "@/lib/stripe";
 import { fulfillPaidOrder, endInstallmentPlanAfterLastRate } from "../fulfill";
 import { LegalFooter } from "../legal";
@@ -109,9 +116,16 @@ export default async function CheckoutDankePage({
         </div>
 
         <dl className="mt-4 space-y-1 text-sm">
-          <Row label="Nettobetrag" value={formatPrice(CHECKOUT_OFFER.price)} />
-          <Row label={`zzgl. ${Math.round(CHECKOUT_OFFER.vatRate * 100)} % MwSt.`} value={formatPrice(vatAmount())} />
-          <Row label="Gesamt" value={formatPrice(grossPrice())} highlight />
+          {chargesVat() && (
+            <>
+              <Row label="Nettobetrag" value={formatPrice(netPrice())} />
+              <Row
+                label={`enthaltene MwSt. (${Math.round(CHECKOUT_OFFER.vatRate * 100)} %)`}
+                value={formatPrice(vatAmount())}
+              />
+            </>
+          )}
+          <Row label="Gesamtbetrag" value={formatPrice(CHECKOUT_OFFER.price)} highlight={chargesVat()} />
         </dl>
 
         <p className="mt-4 text-sm text-[color:var(--color-muted)] leading-relaxed">

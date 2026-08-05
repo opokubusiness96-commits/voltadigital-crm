@@ -139,9 +139,26 @@ der Webhook übernimmt sie automatisch in die `leads` Tabelle.
 ## 9. Checkout-Seite `/checkout`
 
 Öffentliche Verkaufsseite für das **5er-Paket 1:1 Sessions — 5 × 60 Minuten mit
-Jerome Deres, 1.000 € brutto** (inkl. 19 % MwSt: 840,34 € netto + 159,66 € MwSt,
-entspricht 200 € pro Session). Zahlbar als Einmalzahlung oder in 2 Raten à 500 €
-— **ohne Ratenaufschlag**, die Summe bleibt 1.000 €.
+Jerome Deres, 1.000 €** (200 € pro Session). **Keine Umsatzsteuer**: der Kunde
+zahlt glatt 1.000 €, es gibt keine Netto/MwSt-Aufschlüsselung.
+
+Drei Zahlungsmodelle, alle **ohne Ratenaufschlag**:
+
+| Modell | Abbuchung | Summe |
+|---|---|---|
+| Einmalzahlung | 1.000,00 € | 1.000,00 € |
+| 2 Raten | 2 × 500,00 € monatlich | 1.000,00 € |
+| 3 Raten | 3 × 333,33 € monatlich | 999,99 € |
+
+> 1.000 ÷ 3 geht nicht glatt auf, und ein Stripe-Abo bucht jeden Monat denselben
+> Betrag. Bei drei Raten bleibt deshalb **1 Cent beim Kunden** (999,99 € statt
+> 1.000,00 €). Aufrunden auf 333,34 € wären 1.000,02 € — mehr, als ausgezeichnet
+> ist, und damit die schlechtere Richtung. Cent-genaue 1.000 € bräuchten eine
+> ungleiche erste Rate über eine Stripe Subscription Schedule.
+
+Die Ratenabos beenden sich selbst: `endInstallmentPlanAfterLastRate` setzt
+`cancel_at` auf das Ende der letzten Rate (+5 Tage Puffer), sobald die erste
+Zahlung bestätigt ist.
 
 **Setup — in dieser Reihenfolge, bevor die URL an Kunden geht:**
 
@@ -153,9 +170,11 @@ entspricht 200 € pro Session). Zahlbar als Einmalzahlung oder in 2 Raten à 50
    Text — ein Verkauf an Verbraucher ohne diese Dokumente ist nicht zulässig.
 3. **Verkaufstexte prüfen**: Name, Beschreibung und Leistungen in
    `lib/checkout.ts` sind Platzhalter und gehören durch die echten ersetzt.
-4. Optional: `CHECKOUT_BANK_*` setzen → die Danke-Seite zeigt die Bankdaten
-   direkt an. Ohne IBAN steht dort nur "Zahlungsdaten kommen mit der Rechnung
-   per E-Mail".
+4. **Stripe einrichten** — `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` und die
+   drei Preise `STRIPE_PRICE_CHECKOUT_ONCE` (1.000,00 € einmalig),
+   `STRIPE_PRICE_CHECKOUT_2X` (500,00 € monatlich) und
+   `STRIPE_PRICE_CHECKOUT_3X` (333,33 € monatlich). Siehe den Steuer-Hinweis
+   unten: an keinem der Preise darf ein Steuersatz hängen.
 5. Optional: `BREVO_TPL_CHECKOUT_CONFIRMATION` auf eine Brevo-Template-ID setzen
    → automatische Bestellbestätigung. Ohne ID wird keine Mail verschickt.
 
@@ -165,20 +184,34 @@ Nach dem Deploy erreichbar unter `https://crm.voltadigital.agency/checkout`
 **Was beim Absenden passiert** (`app/checkout/actions.ts`):
 
 - Bestellung landet in `checkout_orders` mit Status `offen` und einer
-  Bestellnummer (`JD-2608-K3F9`), die zugleich der Verwendungszweck ist
-- Lead in der `jerome`-Org wird per E-Mail gesucht: vorhanden → Stage `won` +
-  `value_estimate = 1000`; sonst wird ein neuer Lead angelegt
-- Activity am Lead protokolliert die Bestellung
+  Bestellnummer (`JD-2608-K3F9`)
+- Der Käufer geht zur Stripe-Kasse (Karte, Klarna, SEPA, Link)
+- Erst wenn Stripe die Zahlung meldet (`app/checkout/fulfill.ts`), entstehen
+  Lead (Stage `won`, `value_estimate = 1000`), Activity und Bestätigungs-Mail —
+  ein Abbruch an der Kasse hinterlässt also keinen gewonnenen Deal
 - UTMs aus der URL (`/checkout?utm_source=meta&…`) wandern an Bestellung + Lead
 
-> **Kein Payment-Provider angebunden.** Die Seite erfasst eine verbindliche
-> Bestellung, kassiert aber nicht — bezahlt wird per Überweisung, der Status
-> wird in `checkout_orders.status` gepflegt. Für Stripe/PayPal später: der Betrag
-> wird bereits serverseitig aus `lib/checkout.ts` aufgelöst (nie aus dem
-> Formular), die Session-Erzeugung kann direkt vor dem Insert eingehängt werden.
+> **Ohne Umsatzsteuer — an den Stripe-Preisen darf kein Steuersatz hängen.**
+> `lib/checkout.ts` steht auf `vatRate: 0`. Die Seite zeigt dann nur den
+> Endbetrag, und die Server Action hängt an der Kasse bewusst keinen Steuersatz
+> an. Alle drei Stripe-Prices müssen deshalb ohne Steuersatz und ohne
+> automatische Steuer konfiguriert sein — sonst schlägt Stripe trotzdem etwas
+> obendrauf.
+>
+> Wird später doch Umsatzsteuer fällig, reicht `vatRate: 0.19` plus ein
+> **inklusiver** Steuersatz in `STRIPE_TAX_RATE`: Anzeige und Aufschlüsselung
+> schalten sich mit, der Preis bleibt der Endbetrag. Ein *exklusiver* Satz würde
+> aus 1.000 € an der Kasse 1.190 € machen — `assertInclusiveTaxRate` prüft das
+> vor jeder Kasse bei Stripe und bricht ab, statt zu viel einzuziehen.
 
-Preis, Leistungen und Ratenmodelle stehen in `lib/checkout.ts` — eine Änderung
-dort reicht, Seite und Server Action lesen beide daraus.
+Als Kleinunternehmer gehört der Grund für die fehlende Umsatzsteuer auf die
+Seite — Wortlaut über `NEXT_PUBLIC_CHECKOUT_VAT_NOTE` setzen (z. B. „Gemäß § 19
+UStG wird keine Umsatzsteuer berechnet."). Ohne die Env steht dort nur
+„Keine Umsatzsteuer ausgewiesen."
+
+Preis, Leistungen und Ratenmodelle stehen in `lib/checkout.ts` — für die
+Anzeige reicht eine Änderung dort. Der **abgerechnete** Betrag steht in Stripe:
+eine Preisänderung braucht immer beides.
 
 ---
 

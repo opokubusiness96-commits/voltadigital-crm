@@ -8,22 +8,29 @@
 // Absenden nur die plan-ID — der Betrag wird IMMER serverseitig aus dieser Datei
 // aufgelöst (app/checkout/actions.ts), nie aus dem Formular übernommen.
 
-export type PaymentPlanId = "einmal" | "raten2";
+export type PaymentPlanId = "einmal" | "raten2" | "raten3";
 
 export type PaymentPlan = {
   id: PaymentPlanId;
   label: string;
   hint: string;
   installments: number;
-  /** Brutto pro Rate (inkl. MwSt) — das, was tatsächlich abgebucht wird. */
+  /**
+   * Betrag pro Rate — genau das, was Stripe je Abbuchung zieht. Die Gesamtsumme
+   * wird daraus gerechnet (`planTotal`), nicht separat gepflegt: ein zweites
+   * Feld könnte der Realität widersprechen, und beim Preis ist genau das schon
+   * einmal passiert.
+   */
   installmentAmount: number;
-  /** Brutto gesamt — bei allen Plänen identisch, kein Ratenaufschlag. */
-  total: number;
   /**
    * Name der Env-Variable mit der Stripe-Price-ID. Der abgerechnete Betrag steht
    * damit in Stripe, nicht im Code — die Zahlen hier sind nur die Anzeige.
-   * Beide Preise sind `tax_behavior: inclusive`, 1.000 € sind also brutto inkl.
-   * 19 % MwSt (Konvention des Kontos, siehe Klarheitssessions).
+   *
+   * WICHTIG: Der Betrag im Stripe-Price ist der BRUTTO-Endbetrag (1.000 € bzw.
+   * 500 € pro Rate). Damit Stripe daraus nicht 1.190 € macht, MUSS der Steuersatz
+   * hinter STRIPE_TAX_RATE `inclusive: true` sein — die 19 % sind im Betrag
+   * enthalten und werden nur herausgerechnet. createStripeCheckout prüft das vor
+   * jeder Session und bricht ab, statt zu viel abzubuchen.
    */
   priceEnv: string;
   /**
@@ -49,12 +56,20 @@ export type CheckoutOffer = {
   /** Dauer einer Session in Minuten */
   sessionMinutes: number;
   /**
-   * NETTO-Preis in EUR. Die MwSt kommt oben drauf (B2B-Auszeichnung) — der
-   * Kunde zahlt `grossPrice()`. In Stripe hängt am Preis ein 19-%-Steuersatz,
-   * der Betrag dort ist ebenfalls netto.
+   * ENDPREIS in EUR — genau der Betrag, den der Kunde zahlt. Nichts kommt
+   * obendrauf.
    */
   price: number;
-  /** 0.19 = 19 % MwSt */
+  /**
+   * Umsatzsteuersatz. **0 = es wird keine Umsatzsteuer ausgewiesen** (z. B.
+   * Kleinunternehmerregelung § 19 UStG): Die Seite zeigt dann weder eine
+   * Netto/Steuer-Aufteilung noch einen MwSt-Hinweis, und an der Stripe-Kasse
+   * hängt kein Steuersatz — der Kunde zahlt glatt `price`.
+   *
+   * Wird später doch Umsatzsteuer fällig, reicht hier 0.19 — Anzeige,
+   * Aufschlüsselung und der Stripe-Steuersatz schalten sich mit. Der Preis
+   * bleibt dabei der Endbetrag, die Steuer ist dann darin enthalten.
+   */
   vatRate: number;
   currency: "EUR";
   includes: string[];
@@ -73,7 +88,7 @@ export const CHECKOUT_OFFER: CheckoutOffer = {
   sessionCount: 5,
   sessionMinutes: 60,
   price: 1000,
-  vatRate: 0.19,
+  vatRate: 0,
   currency: "EUR",
   includes: [
     "5 × 60 Minuten 1:1 Session mit Jerome (per Zoom)",
@@ -88,8 +103,7 @@ export const CHECKOUT_OFFER: CheckoutOffer = {
       label: "Einmalzahlung",
       hint: "Komplett in einer Zahlung — Karte, Klarna, SEPA oder Link.",
       installments: 1,
-      installmentAmount: 1190,
-      total: 1190,
+      installmentAmount: 1000,
       priceEnv: "STRIPE_PRICE_CHECKOUT_ONCE",
       mode: "payment",
     },
@@ -98,11 +112,23 @@ export const CHECKOUT_OFFER: CheckoutOffer = {
       label: "2 Raten",
       hint: "Erste Rate sofort, zweite Rate 30 Tage später. Kein Aufschlag.",
       installments: 2,
-      installmentAmount: 595,
-      total: 1190,
+      installmentAmount: 500,
       priceEnv: "STRIPE_PRICE_CHECKOUT_2X",
       // Karte oder SEPA-Lastschrift: Klarna kann keine wiederkehrende Zahlung,
       // Stripe blendet es im Raten-Checkout deshalb selbst aus.
+      mode: "subscription",
+    },
+    {
+      id: "raten3",
+      label: "3 Raten",
+      // 1.000 / 3 geht nicht glatt auf, und ein Stripe-Abo bucht jeden Monat
+      // denselben Betrag. 333,33 × 3 = 999,99 — der letzte Cent bleibt beim
+      // Kunden. Aufrunden auf 333,34 wären 1.000,02, also mehr als ausgezeichnet;
+      // das ist die schlechtere Richtung.
+      hint: "Erste Rate sofort, dann monatlich. Kein Aufschlag.",
+      installments: 3,
+      installmentAmount: 333.33,
+      priceEnv: "STRIPE_PRICE_CHECKOUT_3X",
       mode: "subscription",
     },
   ],
@@ -112,20 +138,50 @@ export function findPlan(id: string | null | undefined): PaymentPlan | null {
   return CHECKOUT_OFFER.plans.find((p) => p.id === id) ?? null;
 }
 
-/** Netto-Preis je Session — Ankerpreis neben der Gesamtsumme. */
+/**
+ * Was der Kunde über alle Raten hinweg zahlt. Immer aus dem Ratenbetrag
+ * gerechnet, damit angezeigte Summe und tatsächliche Abbuchungen nicht
+ * auseinanderlaufen können. Bei 3 Raten sind das 999,99 € statt 1.000 € —
+ * siehe Kommentar am Plan.
+ */
+export function planTotal(plan: PaymentPlan): number {
+  return Math.round(plan.installmentAmount * plan.installments * 100) / 100;
+}
+
+/** Preis je Session — Ankerpreis neben der Gesamtsumme. */
 export function pricePerSession(offer: CheckoutOffer = CHECKOUT_OFFER): number {
   return Math.round((offer.price / offer.sessionCount) * 100) / 100;
 }
 
-/** MwSt-Betrag auf den Nettopreis (kaufmännisch auf Cent gerundet). */
-export function vatAmount(offer: CheckoutOffer = CHECKOUT_OFFER): number {
-  return Math.round(offer.price * offer.vatRate * 100) / 100;
+/**
+ * Wird überhaupt Umsatzsteuer ausgewiesen? Steuert die Anzeige (Aufschlüsselung
+ * und "inkl. MwSt."-Hinweise) UND ob an der Stripe-Kasse ein Steuersatz hängt.
+ */
+export function chargesVat(offer: CheckoutOffer = CHECKOUT_OFFER): boolean {
+  return offer.vatRate > 0;
 }
 
-/** Was der Kunde tatsächlich zahlt: netto + MwSt. */
-export function grossPrice(offer: CheckoutOffer = CHECKOUT_OFFER): number {
-  return Math.round((offer.price + vatAmount(offer)) * 100) / 100;
+/** Nettoanteil des Endpreises. Ohne Umsatzsteuer identisch mit dem Preis. */
+export function netPrice(offer: CheckoutOffer = CHECKOUT_OFFER): number {
+  return vatSplit(offer.price, offer.vatRate).net;
 }
+
+/** Im Endpreis ENTHALTENE MwSt — kommt nicht obendrauf. Ohne Steuer: 0. */
+export function vatAmount(offer: CheckoutOffer = CHECKOUT_OFFER): number {
+  return vatSplit(offer.price, offer.vatRate).vat;
+}
+
+/**
+ * Hinweis unter dem Preis, wenn keine Umsatzsteuer ausgewiesen wird. Wer als
+ * Kleinunternehmer verkauft, muss den Grund nennen — deshalb per Env
+ * überschreibbar, z. B. "Gemäß § 19 UStG wird keine Umsatzsteuer berechnet."
+ */
+export const NO_VAT_NOTE =
+  process.env.NEXT_PUBLIC_CHECKOUT_VAT_NOTE || "Keine Umsatzsteuer ausgewiesen.";
+
+// Kein grossPrice() mehr: `price` IST der Endbetrag. Eine Funktion, die nur
+// ihren eigenen Eingabewert zurückgibt, verleitet zu der Annahme, der Preis wäre
+// netto — genau die Verwechslung, die hier 190 € gekostet hätte.
 
 // ── Rechtstexte ──────────────────────────────────────────────────────────────
 // Ein Checkout, der an Verbraucher verkauft, muss AGB, Datenschutzerklärung,

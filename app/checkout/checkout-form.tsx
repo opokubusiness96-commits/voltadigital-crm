@@ -4,11 +4,13 @@ import { useEffect, useState } from "react";
 import { Loader2, Lock } from "lucide-react";
 import {
   CHECKOUT_OFFER,
-  findPlan,
+  chargesVat,
   formatPrice,
+  planTotal,
   validateCheckout,
   type CheckoutInput,
   type FieldErrors,
+  type PaymentPlan,
 } from "@/lib/checkout";
 import { LegalLink } from "./legal";
 import { submitCheckout } from "./actions";
@@ -30,11 +32,25 @@ const EMPTY: CheckoutInput = {
   acceptWithdrawal: false,
 };
 
+const WITH_VAT = chargesVat();
+const VAT_PERCENT = Math.round(CHECKOUT_OFFER.vatRate * 100);
+// Ohne Umsatzsteuer gibt es nichts zu erklären — der Preis ist die einzige Zahl.
+const VAT_SUFFIX = WITH_VAT ? ` inkl. ${VAT_PERCENT} % MwSt.` : "";
+
 const INPUT_CLS =
   "w-full bg-[color:var(--color-surface)] border border-[color:var(--color-border)] rounded-md px-3 py-2.5 outline-none focus:border-[color:var(--color-accent)] disabled:opacity-60";
 
-export function CheckoutForm() {
-  const [values, setValues] = useState<CheckoutInput>(EMPTY);
+/**
+ * `plans` kommt aus der Server-Komponente: welche Zahlungsmodelle einen
+ * hinterlegten Stripe-Price haben, steht in server-seitigen Env-Variablen und
+ * ist im Browser nicht sichtbar. Ohne den Prop stünden hier Modelle, die an der
+ * Kasse scheitern.
+ */
+export function CheckoutForm({ plans }: { plans: PaymentPlan[] }) {
+  const [values, setValues] = useState<CheckoutInput>({
+    ...EMPTY,
+    planId: plans[0]?.id ?? EMPTY.planId,
+  });
   const [errors, setErrors] = useState<FieldErrors>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -89,7 +105,7 @@ export function CheckoutForm() {
     }
   }
 
-  const plan = findPlan(values.planId) ?? CHECKOUT_OFFER.plans[0];
+  const plan = plans.find((p) => p.id === values.planId) ?? plans[0];
 
   return (
     <form onSubmit={handleSubmit} className="space-y-8" noValidate>
@@ -214,9 +230,14 @@ export function CheckoutForm() {
       {/* ── Zahlungsmodell ───────────────────────────────────────────────── */}
       <section className="space-y-4">
         <SectionTitle step={3} title="Zahlung" />
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          {CHECKOUT_OFFER.plans.map((p) => {
+        <div
+          className={`grid grid-cols-1 gap-3 ${
+            plans.length > 2 ? "sm:grid-cols-3" : plans.length > 1 ? "sm:grid-cols-2" : ""
+          }`}
+        >
+          {plans.map((p) => {
             const active = values.planId === p.id;
+            const total = planTotal(p);
             return (
               <label
                 key={p.id}
@@ -240,8 +261,15 @@ export function CheckoutForm() {
                     <div className="text-lg font-bold font-display text-[color:var(--color-accent)] mt-0.5">
                       {p.installments > 1
                         ? `${p.installments} × ${formatPrice(p.installmentAmount)}`
-                        : formatPrice(p.total)}
+                        : formatPrice(total)}
                     </div>
+                    {(p.installments > 1 || WITH_VAT) && (
+                      <div className="text-[11px] text-[color:var(--color-muted)]">
+                        {p.installments > 1 ? `${formatPrice(total)} gesamt` : ""}
+                        {p.installments > 1 && WITH_VAT ? "," : ""}
+                        {VAT_SUFFIX}
+                      </div>
+                    )}
                     <p className="text-xs text-[color:var(--color-muted)] mt-1 leading-snug">{p.hint}</p>
                   </div>
                 </div>
@@ -252,7 +280,8 @@ export function CheckoutForm() {
         {errors.planId && <p className="text-sm text-[color:var(--color-red)]">{errors.planId}</p>}
 
         <p className="text-xs text-[color:var(--color-muted)] leading-relaxed">
-          Bezahlt wird sicher über <strong className="text-[color:var(--color-text)]">Stripe</strong> — Karte,
+          Alle Beträge sind Endpreise{VAT_SUFFIX} — es kommen keine weiteren Kosten dazu. Bezahlt wird
+          sicher über <strong className="text-[color:var(--color-text)]">Stripe</strong> — Karte,
           Klarna, SEPA-Lastschrift oder Link. Im nächsten Schritt wählst du die Zahlungsart, danach bekommst
           du Bestätigung und Rechnung per E-Mail.
         </p>
@@ -295,6 +324,11 @@ export function CheckoutForm() {
           </p>
         )}
 
+        <div className="flex items-baseline justify-between gap-3 border-t border-[color:var(--color-border)] pt-4">
+          <span className="text-sm text-[color:var(--color-muted)]">Gesamtbetrag{VAT_SUFFIX}</span>
+          <span className="text-xl font-bold font-display tabular-nums">{formatPrice(planTotal(plan))}</span>
+        </div>
+
         <button
           type="submit"
           disabled={loading}
@@ -306,7 +340,7 @@ export function CheckoutForm() {
             </>
           ) : (
             <>
-              Zahlungspflichtig bestellen · {formatPrice(plan.total)}
+              Zahlungspflichtig bestellen · {formatPrice(planTotal(plan))}
             </>
           )}
         </button>

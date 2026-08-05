@@ -3,8 +3,10 @@ import { Check, Clock, ShieldCheck, Video } from "lucide-react";
 import {
   CHECKOUT_OFFER,
   CONTACT_EMAIL,
+  chargesVat,
   formatPrice,
-  grossPrice,
+  netPrice,
+  NO_VAT_NOTE,
   pricePerSession,
   vatAmount,
 } from "@/lib/checkout";
@@ -17,10 +19,32 @@ export const metadata: Metadata = {
   description: `${CHECKOUT_OFFER.tagline} · ${formatPrice(CHECKOUT_OFFER.price)}`,
 };
 
+/**
+ * Nur Zahlungsmodelle anbieten, für die ein Stripe-Price hinterlegt ist. Ein
+ * Modell ohne `priceEnv` würde an der Kasse scheitern — auf einer laufenden
+ * Verkaufsseite ist eine fehlende Option besser als eine kaputte.
+ *
+ * Ist gar keiner gesetzt (lokal, DEV_FAKE_AUTH), werden alle gezeigt: dort geht
+ * die Bestellung ohnehin nie zu Stripe.
+ */
+function bookablePlans() {
+  const configured = CHECKOUT_OFFER.plans.filter((p) => !!process.env[p.priceEnv]);
+  if (configured.length === 0) return CHECKOUT_OFFER.plans;
+  for (const p of CHECKOUT_OFFER.plans) {
+    if (!configured.includes(p)) {
+      console.warn(`checkout: Zahlungsmodell "${p.id}" ausgeblendet — ${p.priceEnv} fehlt`);
+    }
+  }
+  return configured;
+}
+
 export default function CheckoutPage() {
-  // Netto ist der ausgezeichnete Preis, die MwSt kommt oben drauf.
+  // Der ausgezeichnete Preis ist der Endbetrag. Ohne Umsatzsteuer (vatRate 0)
+  // entfällt die Aufschlüsselung komplett — der Kunde sieht genau eine Zahl.
+  const withVat = chargesVat();
+  const net = netPrice();
   const vat = vatAmount();
-  const gross = grossPrice();
+  const vatPercent = Math.round(CHECKOUT_OFFER.vatRate * 100);
 
   return (
     <main className="mx-auto max-w-6xl px-6 py-10 lg:py-16">
@@ -51,7 +75,7 @@ export default function CheckoutPage() {
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_22rem] gap-8 lg:gap-12 items-start">
         {/* Formular */}
         <div className="order-2 lg:order-1">
-          <CheckoutForm />
+          <CheckoutForm plans={bookablePlans()} />
         </div>
 
         {/* Bestellübersicht */}
@@ -66,22 +90,39 @@ export default function CheckoutPage() {
                 {formatPrice(CHECKOUT_OFFER.price)}
               </div>
               <div className="text-xs text-[color:var(--color-muted)] mt-1">
-                {formatPrice(pricePerSession())} pro Session · netto
+                {withVat ? `inkl. ${vatPercent} % MwSt. · ` : ""}
+                {formatPrice(pricePerSession())} pro Session
               </div>
             </div>
 
             <dl className="mt-4 space-y-1.5 border-t border-[color:var(--color-border)] pt-4 text-sm">
-              <div className="flex justify-between text-[color:var(--color-muted)]">
-                <dt>Nettobetrag</dt>
+              {withVat && (
+                <>
+                  <div className="flex justify-between text-[color:var(--color-muted)]">
+                    <dt>Nettobetrag</dt>
+                    <dd className="tabular-nums">{formatPrice(net)}</dd>
+                  </div>
+                  <div className="flex justify-between text-[color:var(--color-muted)]">
+                    <dt>enthaltene MwSt. ({vatPercent} %)</dt>
+                    <dd className="tabular-nums">{formatPrice(vat)}</dd>
+                  </div>
+                </>
+              )}
+              {/* "Paketpreis", nicht "Gesamtbetrag": diese Übersicht ist statisch,
+                  während das Zahlungsmodell im Formular gewählt wird. Bei 3 Raten
+                  liegt die Summe der Abbuchungen einen Cent darunter — der für den
+                  gewählten Plan gültige Betrag steht direkt über dem Bestell-Button. */}
+              <div
+                className={`flex justify-between font-semibold ${
+                  withVat ? "pt-2 border-t border-[color:var(--color-border)] mt-2" : ""
+                }`}
+              >
+                <dt>Paketpreis</dt>
                 <dd className="tabular-nums">{formatPrice(CHECKOUT_OFFER.price)}</dd>
               </div>
-              <div className="flex justify-between text-[color:var(--color-muted)]">
-                <dt>zzgl. {Math.round(CHECKOUT_OFFER.vatRate * 100)} % MwSt.</dt>
-                <dd className="tabular-nums">{formatPrice(vat)}</dd>
-              </div>
-              <div className="flex justify-between pt-2 font-semibold border-t border-[color:var(--color-border)] mt-2">
-                <dt>Gesamt</dt>
-                <dd className="tabular-nums">{formatPrice(gross)}</dd>
+              <div className="text-right text-xs text-[color:var(--color-muted)]">
+                Endpreis — es kommen keine weiteren Kosten dazu.
+                {!withVat && ` ${NO_VAT_NOTE}`} Ratenzahlung wählbar.
               </div>
             </dl>
           </div>

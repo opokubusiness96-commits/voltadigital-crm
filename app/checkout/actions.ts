@@ -3,11 +3,13 @@
 import { headers } from "next/headers";
 
 import { getSupabaseServiceRole } from "@/lib/supabase/server";
-import { stripePost } from "@/lib/stripe";
+import { stripeGet, stripePost } from "@/lib/stripe";
 import {
   CHECKOUT_OFFER,
+  chargesVat,
   findPlan,
   makeOrderReference,
+  planTotal,
   validateCheckout,
   type CheckoutInput,
   type FieldErrors,
@@ -112,7 +114,7 @@ export async function submitCheckout(raw: CheckoutInput): Promise<CheckoutResult
       offer_name: CHECKOUT_OFFER.name,
       plan_id: plan.id,
       installments: plan.installments,
-      amount_gross: plan.total,
+      amount_gross: planTotal(plan),
       vat_rate: CHECKOUT_OFFER.vatRate,
       currency: CHECKOUT_OFFER.currency,
       first_name: input.firstName,
@@ -167,9 +169,13 @@ export async function submitCheckout(raw: CheckoutInput): Promise<CheckoutResult
  * angelegt, damit Rechnung und Beleg die Adresse tragen, die er hier eingegeben
  * hat — er muss sie bei Stripe nicht ein zweites Mal tippen.
  *
- * Die 19 % MwSt hängen als Stripe-Steuersatz an der Position (zzgl.), der Preis
- * selbst ist netto. Stripe zeigt dem Käufer damit Netto, MwSt und Gesamtbetrag
- * getrennt an — und rechnet exakt dieselbe Summe wie unsere Bestellübersicht.
+ * Der Preis im Stripe-Price ist der ENDBETRAG (1.000 € bzw. 500 € pro Rate).
+ * Aktuell weist das Angebot keine Umsatzsteuer aus (`vatRate: 0`), es hängt
+ * deshalb kein Steuersatz an der Kasse — Stripe bucht genau diesen Betrag ab.
+ *
+ * Sollte später doch Umsatzsteuer fällig werden, muss der Satz `inclusive`
+ * sein, damit aus 1.000 € nicht 1.190 € werden; assertInclusiveTaxRate erzwingt
+ * das, bevor eine Kasse aufgeht.
  */
 async function createStripeCheckout(
   plan: PaymentPlan,
@@ -179,9 +185,22 @@ async function createStripeCheckout(
 ): Promise<string> {
   const priceId = process.env[plan.priceEnv];
   if (!priceId) throw new Error(`${plan.priceEnv} fehlt — kein Stripe-Price hinterlegt`);
+  await assertPriceMatchesPlan(priceId, plan);
 
-  const taxRate = process.env.STRIPE_TAX_RATE;
-  if (!taxRate) throw new Error("STRIPE_TAX_RATE fehlt — MwSt-Satz nicht hinterlegt");
+  // Ohne ausgewiesene Umsatzsteuer (vatRate 0) hängt an der Kasse KEIN
+  // Steuersatz — der Kunde zahlt glatt den Preis aus dem Stripe-Price.
+  let taxRate: string | null = null;
+  if (chargesVat()) {
+    taxRate = process.env.STRIPE_TAX_RATE || null;
+    if (!taxRate) throw new Error("STRIPE_TAX_RATE fehlt — MwSt-Satz nicht hinterlegt");
+    await assertInclusiveTaxRate(taxRate, plan);
+  } else if (process.env.STRIPE_TAX_RATE) {
+    // Übrig gebliebene Env nach der Umstellung: bewusst ignoriert, aber sichtbar.
+    console.warn(
+      "checkout: STRIPE_TAX_RATE ist gesetzt, das Angebot weist aber keine Umsatzsteuer aus " +
+        "(vatRate 0) — der Satz wird nicht angewendet. Env entfernen oder vatRate setzen.",
+    );
+  }
 
   const origin = await currentOrigin();
 
@@ -211,17 +230,18 @@ async function createStripeCheckout(
       mode: plan.mode,
       customer: customer.id,
       locale: "de",
-      // Preis kommt aus Stripe, Steuersatz kommt oben drauf. In Subscription-
-      // Sessions gehören die Sätze ans Abo, nicht an die Position.
+      // Der Betrag kommt aus dem Stripe-Price. Ein Steuersatz wird nur angehängt,
+      // wenn das Angebot überhaupt Umsatzsteuer ausweist — in Subscription-
+      // Sessions gehört er ans Abo, nicht an die Position.
       line_items: [
-        isSubscription
+        isSubscription || !taxRate
           ? { price: priceId, quantity: 1 }
           : { price: priceId, quantity: 1, tax_rates: [taxRate] },
       ],
       ...(isSubscription
         ? {
             subscription_data: {
-              default_tax_rates: [taxRate],
+              ...(taxRate ? { default_tax_rates: [taxRate] } : {}),
               description: `${CHECKOUT_OFFER.name} — ${plan.installments} Raten`,
               metadata: { reference, plan_id: plan.id, installments: plan.installments },
             },
@@ -249,6 +269,104 @@ async function createStripeCheckout(
 
   if (!session.url) throw new Error("Stripe lieferte keine Checkout-URL");
   return session.url;
+}
+
+// Einmal pro Prozess geprüfte Stripe-Objekte. Preis und Steuersatz ändern sich
+// nicht zwischen zwei Bestellungen — ein Request pro Kasse wäre verschenkt.
+const verifiedPrices = new Set<string>();
+const verifiedInclusiveTaxRates = new Set<string>();
+
+/**
+ * Der Betrag auf der Seite kommt aus `lib/checkout.ts`, abgebucht wird der
+ * Betrag aus dem Stripe-Price. Das sind zwei Quellen, die auseinanderlaufen
+ * können — genau das ist hier schon einmal passiert (Seite 1.000 €, Kasse
+ * 1.190 €).
+ *
+ * Deshalb: vor der ersten Kasse den Preis bei Stripe lesen und mit dem
+ * ausgezeichneten Ratenbetrag vergleichen. Bei Abweichung geht die Kasse nicht
+ * auf — der Käufer sieht "Zahlungsseite konnte nicht geöffnet werden", statt
+ * einen anderen Betrag zu zahlen, als er bestätigt hat.
+ */
+async function assertPriceMatchesPlan(priceId: string, plan: PaymentPlan): Promise<void> {
+  if (verifiedPrices.has(priceId)) return;
+
+  const price = (await stripeGet(`/prices/${priceId}`)) as {
+    unit_amount?: number | null;
+    currency?: string;
+    active?: boolean;
+    recurring?: { interval?: string } | null;
+  };
+
+  const expectedCents = Math.round(plan.installmentAmount * 100);
+  if (price.unit_amount !== expectedCents) {
+    const actual = typeof price.unit_amount === "number" ? price.unit_amount / 100 : "unbekannt";
+    throw new Error(
+      `${plan.priceEnv} (${priceId}) steht auf ${actual} €, die Seite zeigt aber ` +
+        `${plan.installmentAmount} € pro Rate. Betrag in Stripe korrigieren oder ` +
+        `installmentAmount in lib/checkout.ts anpassen.`,
+    );
+  }
+
+  if (price.currency && price.currency.toLowerCase() !== CHECKOUT_OFFER.currency.toLowerCase()) {
+    throw new Error(`${plan.priceEnv} (${priceId}) ist in ${price.currency}, erwartet wird EUR`);
+  }
+
+  // Raten brauchen einen wiederkehrenden Preis, die Einmalzahlung darf keiner sein —
+  // sonst nimmt Stripe die Session gar nicht erst an bzw. bucht dauerhaft ab.
+  const isRecurring = !!price.recurring;
+  const shouldRecur = plan.mode === "subscription";
+  if (isRecurring !== shouldRecur) {
+    throw new Error(
+      `${plan.priceEnv} (${priceId}) ist ${isRecurring ? "wiederkehrend" : "einmalig"}, ` +
+        `der Plan "${plan.id}" braucht ${shouldRecur ? "einen monatlichen" : "einen einmaligen"} Preis`,
+    );
+  }
+
+  if (price.active === false) {
+    throw new Error(`${plan.priceEnv} (${priceId}) ist in Stripe archiviert`);
+  }
+
+  verifiedPrices.add(priceId);
+}
+
+/**
+ * Sicherung gegen den teuersten denkbaren Konfigurationsfehler: Die Seite zeichnet
+ * Endpreise aus (1.000 € inkl. MwSt). Ist der Stripe-Steuersatz NICHT `inclusive`,
+ * schlägt Stripe die 19 % oben drauf und bucht 1.190 € ab — der Käufer zahlt
+ * 190 € mehr, als er zugestimmt hat.
+ *
+ * Deshalb: lieber die Kasse gar nicht öffnen (der Käufer sieht "Zahlungsseite
+ * konnte nicht geöffnet werden") als den falschen Betrag einziehen.
+ */
+async function assertInclusiveTaxRate(taxRateId: string, plan: PaymentPlan): Promise<void> {
+  if (verifiedInclusiveTaxRates.has(taxRateId)) return;
+
+  const rate = (await stripeGet(`/tax_rates/${taxRateId}`)) as {
+    inclusive?: boolean;
+    percentage?: number;
+  };
+
+  if (rate.inclusive !== true) {
+    const total = planTotal(plan);
+    const wrong = Math.round(total * (1 + CHECKOUT_OFFER.vatRate) * 100) / 100;
+    throw new Error(
+      `STRIPE_TAX_RATE ${taxRateId} ist nicht inclusive — Stripe würde ${wrong} € statt ` +
+        `${total} € abbuchen. In Stripe einen Steuersatz mit "inklusive" anlegen ` +
+        `und die Env darauf zeigen lassen.`,
+    );
+  }
+
+  // Kein Abbruch: ein abweichender Satz ändert nur die Netto/MwSt-Aufteilung auf
+  // der Rechnung, nicht den Gesamtbetrag. Sichtbar sein soll es trotzdem.
+  const expected = Math.round(CHECKOUT_OFFER.vatRate * 100);
+  if (typeof rate.percentage === "number" && Math.round(rate.percentage) !== expected) {
+    console.error(
+      `checkout: Stripe-Steuersatz ${rate.percentage} % weicht von vatRate ${expected} % ab — ` +
+        `die Aufschlüsselung auf der Seite passt dann nicht zur Rechnung`,
+    );
+  }
+
+  verifiedInclusiveTaxRates.add(taxRateId);
 }
 
 /** ISO-Ländercode für Stripe — das Formular bietet genau diese drei an. */
