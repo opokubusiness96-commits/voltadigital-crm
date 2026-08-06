@@ -18,28 +18,29 @@ const PUBLIC_PATHS = [
 ];
 
 /**
- * Eigene Kundendomains für die Verkaufsseiten.
+ * Jede Verkaufsdomain zeigt GENAU ein Angebot — das war die Vorgabe, nachdem
+ * die Übersicht kurzzeitig auf der 1000er-Domain lag: wer den 1000er-Link
+ * bekommt, soll den 1000er sehen und nichts anderes.
  *
- * Käufer sollen weder die interne CRM-Adresse noch die der Agentur sehen — das
- * hier sind Jeromes Angebote, nicht die von Volta Digital.
+ * `home` ist die Seite unter "/". `allow` sind die Pfade, die auf diesem Host
+ * überhaupt aufgehen; alles andere landet wieder auf "/", damit über eine
+ * Verkaufsdomain nichts vom CRM erreichbar ist.
  *
- * `home` ist die Seite, die unter "/" erscheint. `allow` sind die Pfade, die
- * auf diesem Host überhaupt erreichbar sind; alles andere landet wieder auf
- * "/", damit über eine Verkaufsdomain nichts vom CRM aufgeht.
- *
- * Beide Verkaufsseiten sind auf beiden Hosts erreichbar. Das ist Absicht:
- * angebote.jeromederes.com wartet noch auf seinen DNS-Eintrag, bis dahin ist
- * die Übersicht über checkout1000.jeromederes.com/angebote zu erreichen — ohne
- * dass dafür etwas umgebaut werden muss, wenn der Eintrag kommt.
+ * /checkout/danke steht überall in `allow` — dorthin schickt Stripe nach der
+ * Zahlung zurück, egal von welcher Domain der Kauf startete. Ohne diese
+ * Ausnahme sähe der Käufer nach erfolgreicher Zahlung die Startseite statt
+ * seiner Bestellnummer.
  */
-const SALES_PATHS = ["/checkout", "/angebote"];
+const DANKE = "/checkout/danke";
 
 const CUSTOMER_HOSTS: Record<string, { home: string; allow: string[] }> = {
-  // Startseite bleibt das 5er-Paket — dieser Link ist im Umlauf und wird
-  // benutzt. Die Angebotsübersicht liegt daneben unter /angebote.
-  "checkout1000.jeromederes.com": { home: "/checkout", allow: SALES_PATHS },
-  "checkout1000.voltadigital.agency": { home: "/checkout", allow: SALES_PATHS },
-  "angebote.jeromederes.com": { home: "/angebote", allow: SALES_PATHS },
+  // Nur das 5er-Paket. Dieser Link ist im Umlauf.
+  "checkout1000.jeromederes.com": { home: "/checkout", allow: ["/checkout"] },
+  "checkout1000.voltadigital.agency": { home: "/checkout", allow: ["/checkout"] },
+  // Angebotsübersicht: Einzelstunde, 5er-Paket, 12 Wochen. Die Domain zeigte
+  // früher auf die 3.000er-Stufe, die mit der Preisumstellung entfallen ist.
+  "checkout2.jeromederes.com": { home: "/angebote", allow: ["/angebote", DANKE] },
+  "angebote.jeromederes.com": { home: "/angebote", allow: ["/angebote", DANKE] },
 };
 
 export async function proxy(request: NextRequest) {
