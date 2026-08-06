@@ -10,15 +10,12 @@ import {
   findPlan,
   makeOrderReference,
   planTotal,
-  validateCheckout,
-  type CheckoutInput,
-  type FieldErrors,
   type PaymentPlan,
 } from "@/lib/checkout";
 
 export type CheckoutResult =
   | { ok: true; reference: string; url: string }
-  | { ok: false; error: string; fields?: FieldErrors };
+  | { ok: false; error: string };
 
 function isDevFake(): boolean {
   return (
@@ -31,52 +28,26 @@ const trim = (v: unknown, max = 200): string =>
   typeof v === "string" ? v.trim().slice(0, max) : "";
 
 /**
- * Bestellung der öffentlichen Checkout-Seite entgegennehmen und den Käufer zur
- * Stripe-Kasse schicken.
+ * Kasse öffnen.
  *
- * Läuft ohne Login — deshalb:
- *  - Preis/Raten kommen NIE aus dem Formular, sondern aus lib/checkout.ts bzw.
- *    aus dem Stripe-Price hinter der Env-Variable des Plans
- *  - geschrieben wird mit dem Service-Role-Key (RLS-Bypass, Migration 0017)
- *  - alle Eingaben werden hier nochmal validiert und längenbegrenzt
+ * Der Käufer füllt bei uns KEIN Formular mehr aus — er wählt das
+ * Zahlungsmodell, bestätigt die Rechtstexte und landet direkt bei Stripe.
+ * Name, E-Mail, Telefon und Rechnungsadresse sammelt Stripe ein; dort sind sie
+ * ohnehin nötig, und Apple Pay oder Google Pay füllen sie mit einem Tipp.
  *
- * Die Bestellung entsteht hier mit Status "offen" — Lead, Activity und
- * Bestätigungs-Mail folgen erst, wenn Stripe die Zahlung meldet
- * (app/checkout/fulfill.ts). Ein Abbruch an der Kasse hinterlässt damit keinen
- * gewonnenen Deal in der Pipeline.
+ * Die Bestellung entsteht hier bereits — mit Referenz, Angebots-Snapshot und
+ * Status "offen", aber ohne Kundendaten: die kennen wir vor der Zahlung nicht.
+ * Sie werden aus der bezahlten Stripe-Session nachgetragen
+ * (app/checkout/fulfill.ts), zusammen mit Lead, Activity und Bestätigungs-Mail.
+ * Ein Abbruch an der Kasse hinterlässt damit keinen gewonnenen Deal.
+ *
+ * Preis und Raten kommen NIE vom Client, sondern aus lib/checkout.ts und dem
+ * Stripe-Price dahinter — der Browser schickt ausschliesslich die Plan-ID.
  */
-export async function submitCheckout(raw: CheckoutInput): Promise<CheckoutResult> {
-  const input: CheckoutInput = {
-    firstName: trim(raw.firstName, 80),
-    lastName: trim(raw.lastName, 80),
-    email: trim(raw.email, 160).toLowerCase(),
-    phone: trim(raw.phone, 40),
-    company: trim(raw.company, 120),
-    vatId: trim(raw.vatId, 40),
-    street: trim(raw.street, 160),
-    postalCode: trim(raw.postalCode, 16),
-    city: trim(raw.city, 100),
-    country: trim(raw.country, 80) || "Deutschland",
-    planId: trim(raw.planId, 20),
-    notes: trim(raw.notes, 1000),
-    acceptTerms: raw.acceptTerms === true,
-    acceptWithdrawal: raw.acceptWithdrawal === true,
-    utmSource: trim(raw.utmSource, 120) || undefined,
-    utmMedium: trim(raw.utmMedium, 120) || undefined,
-    utmCampaign: trim(raw.utmCampaign, 120) || undefined,
-    utmContent: trim(raw.utmContent, 120) || undefined,
-  };
+export async function startCheckout(rawPlanId: unknown): Promise<CheckoutResult> {
+  const plan = findPlan(trim(rawPlanId, 20));
+  if (!plan) return { ok: false, error: "Bitte ein Zahlungsmodell wählen." };
 
-  const fields = validateCheckout(input);
-  if (Object.keys(fields).length > 0) {
-    return { ok: false, error: "Bitte die markierten Felder prüfen.", fields };
-  }
-
-  // Betrag serverseitig auflösen — das Formular liefert nur die plan-ID.
-  const plan = findPlan(input.planId)!;
-  const fullName = `${input.firstName} ${input.lastName}`.trim();
-
-  // DEV-ONLY: ohne echtes Backend durchklickbar (analog getSupabaseServer).
   if (isDevFake()) {
     const reference = makeOrderReference(new Date());
     return { ok: true, reference, url: `/checkout/danke?ref=${reference}` };
@@ -89,7 +60,6 @@ export async function submitCheckout(raw: CheckoutInput): Promise<CheckoutResult
 
   const admin = getSupabaseServiceRole();
 
-  // Ziel-Org auflösen (Angebot gehört zu genau einer Org).
   const { data: org, error: orgError } = await admin
     .from("organizations")
     .select("id")
@@ -102,7 +72,7 @@ export async function submitCheckout(raw: CheckoutInput): Promise<CheckoutResult
   }
   const orgId = org.id as string;
 
-  // Bestellung schreiben. reference ist unique → bei Kollision neu würfeln.
+  // Bestellnummer eindeutig würfeln; reference ist unique.
   let reference = "";
   let lastError: string | null = null;
   for (let attempt = 0; attempt < 4; attempt++) {
@@ -116,31 +86,24 @@ export async function submitCheckout(raw: CheckoutInput): Promise<CheckoutResult
       installments: plan.installments,
       amount_gross: planTotal(plan),
       vat_rate: CHECKOUT_OFFER.vatRate,
-      currency: CHECKOUT_OFFER.currency,
-      first_name: input.firstName,
-      last_name: input.lastName,
-      email: input.email,
-      phone: input.phone || null,
-      company: input.company || null,
-      vat_id: input.vatId || null,
-      street: input.street,
-      postal_code: input.postalCode,
-      city: input.city,
-      country: input.country,
-      notes: input.notes || null,
+      currency: "EUR",
+      // Kundendaten sind vor der Zahlung schlicht unbekannt. Die Spalten sind
+      // NOT NULL (Migration 0017, aus der Formular-Zeit) — deshalb leer statt
+      // erfunden. fulfillPaidOrder() trägt sie aus der Stripe-Session nach.
+      first_name: "",
+      last_name: "",
+      email: "",
+      street: "",
+      postal_code: "",
+      city: "",
       status: "offen",
       lead_id: null,
-      utm_source: input.utmSource ?? null,
-      utm_medium: input.utmMedium ?? null,
-      utm_campaign: input.utmCampaign ?? null,
-      utm_content: input.utmContent ?? null,
     });
 
     if (!error) {
       reference = candidate;
       break;
     }
-    // 23505 = unique_violation auf reference → nächster Versuch
     if ((error as { code?: string }).code !== "23505") {
       lastError = error.message;
       break;
@@ -153,7 +116,7 @@ export async function submitCheckout(raw: CheckoutInput): Promise<CheckoutResult
   }
 
   try {
-    const url = await createStripeCheckout(plan, input, fullName, reference);
+    const url = await createStripeCheckout(plan, reference);
     return { ok: true, reference, url };
   } catch (err) {
     console.error("checkout: Stripe-Session fehlgeschlagen", reference, err);
@@ -165,24 +128,18 @@ export async function submitCheckout(raw: CheckoutInput): Promise<CheckoutResult
 }
 
 /**
- * Stripe-Kasse für diese Bestellung. Der Kunde wird vorher als Customer
- * angelegt, damit Rechnung und Beleg die Adresse tragen, die er hier eingegeben
- * hat — er muss sie bei Stripe nicht ein zweites Mal tippen.
+ * Stripe-Kasse für diese Bestellung.
  *
- * Der Preis im Stripe-Price ist der ENDBETRAG (1.000 € bzw. 500 € pro Rate).
- * Aktuell weist das Angebot keine Umsatzsteuer aus (`vatRate: 0`), es hängt
- * deshalb kein Steuersatz an der Kasse — Stripe bucht genau diesen Betrag ab.
+ * Kein vorab angelegter Customer mehr: Stripe erhebt Name, E-Mail, Telefon und
+ * Rechnungsadresse selbst. Damit stehen Apple Pay, Google Pay, Klarna und Link
+ * ohne Umweg zur Verfügung — die füllen genau diese Felder mit einem Tipp, und
+ * jedes Feld, das wir vorher abfragen, ist ein Grund mehr abzuspringen.
  *
- * Sollte später doch Umsatzsteuer fällig werden, muss der Satz `inclusive`
- * sein, damit aus 1.000 € nicht 1.190 € werden; assertInclusiveTaxRate erzwingt
- * das, bevor eine Kasse aufgeht.
+ * `payment_method_types` wird bewusst NICHT gesetzt: Stripe zeigt dann alles an,
+ * was im Konto aktiv und für diesen Kauf zulässig ist. Bei den Ratenmodellen
+ * (Abo) schränkt Stripe selbst auf wiederkehrungsfähige Methoden ein.
  */
-async function createStripeCheckout(
-  plan: PaymentPlan,
-  input: CheckoutInput,
-  fullName: string,
-  reference: string,
-): Promise<string> {
+async function createStripeCheckout(plan: PaymentPlan, reference: string): Promise<string> {
   const priceId = process.env[plan.priceEnv];
   if (!priceId) throw new Error(`${plan.priceEnv} fehlt — kein Stripe-Price hinterlegt`);
   await assertPriceMatchesPlan(priceId, plan);
@@ -204,32 +161,18 @@ async function createStripeCheckout(
 
   const origin = await currentOrigin();
 
-  const customer = (await stripePost(
-    "/customers",
-    {
-      name: input.company || fullName,
-      email: input.email,
-      phone: input.phone || undefined,
-      address: {
-        line1: input.street,
-        postal_code: input.postalCode,
-        city: input.city,
-        country: countryCode(input.country),
-      },
-      metadata: { reference, offer_slug: CHECKOUT_OFFER.slug },
-    },
-    // Zweimal Absenden darf keinen zweiten Kunden anlegen.
-    `customer-${reference}`,
-  )) as { id: string };
-
   const isSubscription = plan.mode === "subscription";
 
   const session = (await stripePost(
     "/checkout/sessions",
     {
       mode: plan.mode,
-      customer: customer.id,
       locale: "de",
+      // Rechnungsadresse ist Pflicht, weil daraus eine Rechnung entsteht.
+      billing_address_collection: "required",
+      phone_number_collection: { enabled: true },
+      // Im Abo-Modus legt Stripe den Kunden ohnehin an.
+      ...(isSubscription ? {} : { customer_creation: "always" }),
       // Der Betrag kommt aus dem Stripe-Price. Ein Steuersatz wird nur angehängt,
       // wenn das Angebot überhaupt Umsatzsteuer ausweist — in Subscription-
       // Sessions gehört er ans Abo, nicht an die Position.
@@ -254,6 +197,15 @@ async function createStripeCheckout(
           }),
       success_url: `${origin}/checkout/danke?ref=${reference}&session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${origin}/checkout?abgebrochen=1`,
+      // Der Widerrufshinweis steht direkt über dem Bezahlen-Button, nicht nur
+      // auf der Seite davor — dort trifft der Käufer die Entscheidung.
+      custom_text: {
+        submit: {
+          message:
+            "Das Coaching beginnt auf deinen ausdrücklichen Wunsch vor Ablauf der " +
+            "Widerrufsfrist. Bestellnummer " + reference + ".",
+        },
+      },
       metadata: {
         reference,
         offer_slug: CHECKOUT_OFFER.slug,
@@ -370,10 +322,6 @@ async function assertInclusiveTaxRate(taxRateId: string, plan: PaymentPlan): Pro
 }
 
 /** ISO-Ländercode für Stripe — das Formular bietet genau diese drei an. */
-function countryCode(country: string): string {
-  const map: Record<string, string> = { Deutschland: "DE", Österreich: "AT", Schweiz: "CH" };
-  return map[country] ?? "DE";
-}
 
 /**
  * Basis-URL für success/cancel. Muss die Domain sein, auf der der Käufer

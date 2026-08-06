@@ -2,7 +2,7 @@ import "server-only";
 
 import { getSupabaseServiceRole } from "@/lib/supabase/server";
 import { sendBrevoEmail } from "@/lib/brevo";
-import { stripePost } from "@/lib/stripe";
+import { stripeGet, stripePost } from "@/lib/stripe";
 import {
   CHECKOUT_OFFER,
   CONTACT_EMAIL,
@@ -48,8 +48,29 @@ export async function fulfillPaidOrder(reference: string, stripeSessionId: strin
   const orgId = order.org_id as string;
   const planId = order.plan_id as string;
   const plan = findPlan(planId);
+
+  // Kundendaten kommen von Stripe, nicht aus einem Formular vor der Zahlung:
+  // die Bestellung wurde ohne sie angelegt. Erst hier stehen Name, E-Mail,
+  // Telefon und Rechnungsadresse fest — und zwar so, wie der Käufer sie
+  // gegenüber dem Zahlungsdienstleister angegeben hat.
+  const details = await customerDetailsFrom(stripeSessionId);
+  if (details) {
+    Object.assign(order, details);
+    const { error } = await admin
+      .from("checkout_orders")
+      .update(details)
+      .eq("reference", reference);
+    if (error) console.error("fulfill: Kundendaten nicht gespeichert", error.message);
+  }
+
   const fullName = `${order.first_name} ${order.last_name}`.trim();
-  const email = String(order.email);
+  const email = String(order.email ?? "");
+
+  if (!email) {
+    // Ohne Adresse gibt es keine Bestätigung und keinen sinnvollen Lead. Die
+    // Zahlung steht trotzdem — deshalb laut scheitern statt still weiterlaufen.
+    console.error("fulfill: keine E-Mail aus der Stripe-Session", reference, stripeSessionId);
+  }
 
   // Ab hier ist die Bestellung bezahlt — kein Teilschritt darf das kippen.
   const leadId = await upsertWonLead(admin, orgId, order, fullName, email);
@@ -77,6 +98,67 @@ export async function fulfillPaidOrder(reference: string, stripeSessionId: strin
   }
 
   await sendConfirmation(order, fullName, reference, plan?.label ?? planId);
+}
+
+/**
+ * Name, E-Mail, Telefon und Rechnungsadresse aus der bezahlten Stripe-Session.
+ *
+ * Stripe liefert einen zusammenhängenden Namen ("Ama Boateng"); die Bestellung
+ * führt Vor- und Nachname getrennt. Alles vor dem letzten Leerzeichen ist
+ * Vorname — bei einem einzelnen Wort bleibt der Nachname leer, statt zu raten.
+ */
+async function customerDetailsFrom(
+  sessionId: string,
+): Promise<Record<string, string> | null> {
+  if (!sessionId || !/^cs_[A-Za-z0-9_]+$/.test(sessionId)) return null;
+
+  try {
+    const session = (await stripeGet(`/checkout/sessions/${sessionId}`)) as {
+      customer_details?: {
+        name?: string | null;
+        email?: string | null;
+        phone?: string | null;
+        address?: {
+          line1?: string | null;
+          line2?: string | null;
+          postal_code?: string | null;
+          city?: string | null;
+          country?: string | null;
+        } | null;
+      } | null;
+    };
+
+    const d = session.customer_details;
+    if (!d) return null;
+
+    const name = (d.name ?? "").trim();
+    const cut = name.lastIndexOf(" ");
+    const street = [d.address?.line1, d.address?.line2].filter(Boolean).join(", ");
+
+    return {
+      first_name: cut > 0 ? name.slice(0, cut) : name,
+      last_name: cut > 0 ? name.slice(cut + 1) : "",
+      email: (d.email ?? "").trim().toLowerCase(),
+      phone: (d.phone ?? "").trim(),
+      street,
+      postal_code: (d.address?.postal_code ?? "").trim(),
+      city: (d.address?.city ?? "").trim(),
+      country: countryName(d.address?.country),
+    };
+  } catch (err) {
+    console.error("fulfill: Stripe-Session nicht lesbar", sessionId, err);
+    return null;
+  }
+}
+
+/** Stripe liefert ISO-Codes, die Bestellung führt Klartext. */
+function countryName(code: string | null | undefined): string {
+  const map: Record<string, string> = {
+    DE: "Deutschland",
+    AT: "Österreich",
+    CH: "Schweiz",
+  };
+  return (code && map[code.toUpperCase()]) || code || "Deutschland";
 }
 
 type AdminClient = ReturnType<typeof getSupabaseServiceRole>;

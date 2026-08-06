@@ -10,7 +10,7 @@ import {
   pricePerSession,
   vatAmount,
 } from "@/lib/checkout";
-import { CheckoutForm } from "./checkout-form";
+import { CheckoutStart } from "./checkout-start";
 import { LegalFooter } from "./legal";
 
 // Öffentliche Seite — kein Login (siehe PUBLIC_PATHS in proxy.ts).
@@ -75,7 +75,7 @@ export default function CheckoutPage() {
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_22rem] gap-8 lg:gap-12 items-start">
         {/* Formular */}
         <div className="order-2 lg:order-1">
-          <CheckoutForm plans={bookablePlans()} />
+          <CheckoutStart plans={bookablePlans()} />
         </div>
 
         {/* Bestellübersicht */}
