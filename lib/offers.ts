@@ -36,6 +36,15 @@ export type Offer = {
   includes: string[];
   /** Fussnote unter der Kachel, z. B. der Hinweis aufs günstigere Paket. */
   note?: string;
+  /**
+   * Was in der Bestätigungs-Mail unter "Wie es weitergeht" steht.
+   *
+   * Bewusst hier und nicht in der Brevo-Vorlage: eine einzelne Stunde,
+   * fünf Sessions und ein Zwölf-Wochen-Programm brauchen unterschiedliche
+   * Ansagen, und wer ein viertes Angebot anlegt, soll keine Vorlage
+   * nachziehen müssen. `{n}` wird durch die gebuchte Menge ersetzt.
+   */
+  mailNextSteps: string;
 };
 
 export const OFFERS: Offer[] = [
@@ -56,6 +65,9 @@ export const OFFERS: Offer[] = [
       "Aufzeichnung und Notizen danach",
     ],
     note: "Ab 5 Stunden zahlst du im Paket weniger.",
+    mailNextSteps:
+      "Jerome meldet sich innerhalb von 24 Stunden persönlich bei dir und ihr legt den Termin " +
+      "für deine {n} fest. Bring mit, woran du gerade arbeitest — die Stunde gehört komplett dir.",
   },
   {
     id: "paket5",
@@ -73,6 +85,10 @@ export const OFFERS: Offer[] = [
       "Konkrete Umsetzungs-Schritte zwischen den Terminen",
     ],
     note: "200 € pro Stunde statt 249 € — auch in 2 oder 3 Raten zahlbar.",
+    mailNextSteps:
+      "Jerome meldet sich innerhalb von 24 Stunden persönlich bei dir. Ihr legt gemeinsam den " +
+      "ersten Termin fest, die weiteren vier Sessions planst du flexibel in deinem Tempo dazu — " +
+      "viele nehmen wöchentlich, manche alle zwei Wochen.",
   },
   {
     id: "programm12",
@@ -91,6 +107,10 @@ export const OFFERS: Offer[] = [
       "Gemeinsamer Plan über die volle Strecke statt Einzelterminen",
     ],
     note: "Ratenzahlung auf Anfrage — schreib uns vor der Buchung.",
+    mailNextSteps:
+      "Jerome meldet sich innerhalb von 24 Stunden persönlich bei dir. Ihr setzt den Startpunkt " +
+      "und den Plan über die zwölf Wochen auf. Deinen Community-Zugang bekommst du separat per " +
+      "E-Mail — er bleibt dir auch nach dem Programm erhalten.",
   },
 ];
 
@@ -116,4 +136,30 @@ export function offerUnitLine(offer: Offer, quantity = 1): string | null {
   if (!offer.unitLabel) return null;
   const n = clampQuantity(offer, quantity);
   return `${formatPrice(offer.unitPrice)} pro ${offer.unitLabel}${n > 1 ? ` · ${n} Stunden` : ""}`;
+}
+
+/**
+ * Angebot zu einer Bestellung finden.
+ *
+ * `offer_slug` trägt bei Bestellungen von /angebote die Offer-ID, bei den
+ * älteren vom 5er-Checkout dagegen den Angebots-Slug aus lib/checkout.ts.
+ * Beide Wege müssen dieselbe Mail auslösen — deshalb hier beide abgedeckt.
+ */
+export function offerForOrderSlug(slug: string | null | undefined): Offer | null {
+  if (!slug) return null;
+  return (
+    OFFERS.find((o) => o.id === slug) ??
+    (slug === "jerome-5x60-1000" ? OFFERS.find((o) => o.id === "paket5") ?? null : null)
+  );
+}
+
+/** "deine Stunde" / "deine 3 Stunden" — für Fliesstext in der Mail. */
+export function unitPhrase(offer: Offer, quantity: number): string {
+  if (!offer.unitLabel) return offer.name;
+  return quantity > 1 ? `${quantity} ${offer.unitLabel}n` : offer.unitLabel;
+}
+
+/** Text für "Wie es weitergeht" mit eingesetzter Menge. */
+export function mailNextSteps(offer: Offer, quantity: number): string {
+  return offer.mailNextSteps.replace("{n}", unitPhrase(offer, quantity));
 }

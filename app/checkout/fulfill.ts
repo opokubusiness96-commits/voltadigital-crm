@@ -10,6 +10,7 @@ import {
   formatPrice,
   vatSplit,
 } from "@/lib/checkout";
+import { mailNextSteps, offerForOrderSlug, unitPhrase } from "@/lib/offers";
 
 /**
  * Alles, was NACH der bezahlten Stripe-Session passiert: Bestellung auf
@@ -265,6 +266,11 @@ async function sendConfirmation(
         fullName,
         reference,
         offerName: order.offer_name || CHECKOUT_OFFER.name,
+        // Der individuelle Teil: Leistungen und "Wie es weitergeht" kommen aus
+        // dem gekauften Angebot. Eine Einzelstunde bekommt damit eine andere
+        // Mail als das Zwölf-Wochen-Programm — ohne dass dafür je Angebot eine
+        // eigene Brevo-Vorlage gepflegt werden muss.
+        ...offerMailParams(order),
         planLabel,
         installments,
         installmentAmount: formatPrice(gross / installments),
@@ -279,6 +285,32 @@ async function sendConfirmation(
   } catch (err) {
     console.error("fulfill: Bestätigungs-Mail fehlgeschlagen", err);
   }
+}
+
+/**
+ * Angebotsabhängige Bausteine der Bestätigungs-Mail.
+ *
+ * Ist das Angebot nicht auffindbar (alte Bestellung, entferntes Produkt),
+ * bleiben die Felder leer — die Vorlage lässt die Abschnitte dann weg, statt
+ * mit "undefined" zu verschicken.
+ */
+function offerMailParams(order: Record<string, unknown>): Record<string, unknown> {
+  const offer = offerForOrderSlug(String(order.offer_slug ?? ""));
+  if (!offer) return { includes: [], nextSteps: "", offerTagline: "" };
+
+  // Die Menge steht nicht als Spalte in der Bestellung, sondern im Namen
+  // ("Einzelstunde × 3") — der Betrag verrät sie zuverlässiger.
+  const quantity = offer.unitPrice > 0
+    ? Math.max(1, Math.round(Number(order.amount_gross) / offer.unitPrice))
+    : 1;
+
+  return {
+    offerTagline: offer.tagline,
+    quantity,
+    unitPhrase: unitPhrase(offer, quantity),
+    includes: offer.includes,
+    nextSteps: mailNextSteps(offer, quantity),
+  };
 }
 
 /**
