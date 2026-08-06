@@ -34,6 +34,16 @@ export type PaymentPlan = {
    */
   priceEnv: string;
   /**
+   * Optionaler Rundungsausgleich, nur bei Raten die nicht glatt aufgehen.
+   *
+   * Ein Stripe-Abo bucht jeden Monat DENSELBEN Betrag — 1.000 / 3 lässt sich
+   * damit nicht darstellen. Deshalb läuft der Rest als einmalige Position auf
+   * der ERSTEN Rechnung mit: 333,34 + 333,33 + 333,33 = exakt 1.000,00 €.
+   * Env-Name der einmaligen Stripe-Price-ID; ohne gesetzte Variable entfällt
+   * der Ausgleich und die Summe liegt um die Restcents darunter.
+   */
+  adjustmentEnv?: string;
+  /**
    * `payment` = eine Zahlung. `subscription` = echte Raten: monatlicher Preis,
    * der nach der letzten Rate automatisch endet (cancel_at wird gesetzt, sobald
    * die Session bezahlt ist — siehe app/checkout/fulfill.ts).
@@ -122,13 +132,15 @@ export const CHECKOUT_OFFER: CheckoutOffer = {
       id: "raten3",
       label: "3 Raten",
       // 1.000 / 3 geht nicht glatt auf, und ein Stripe-Abo bucht jeden Monat
-      // denselben Betrag. 333,33 × 3 = 999,99 — der letzte Cent bleibt beim
-      // Kunden. Aufrunden auf 333,34 wären 1.000,02, also mehr als ausgezeichnet;
-      // das ist die schlechtere Richtung.
+      // denselben Betrag. Der Restcent läuft deshalb als einmalige Position auf
+      // der ersten Rechnung mit (adjustmentEnv): 333,34 + 333,33 + 333,33 =
+      // exakt 1.000,00 €. Aufrunden auf 333,34 pro Rate wären 1.000,02 gewesen,
+      // also mehr abbuchen als ausgezeichnet — die schlechtere Richtung.
       hint: "Erste Rate sofort, dann monatlich. Kein Aufschlag.",
       installments: 3,
       installmentAmount: 333.33,
       priceEnv: "STRIPE_PRICE_CHECKOUT_3X",
+      adjustmentEnv: "STRIPE_PRICE_CHECKOUT_3X_ADJUST",
       mode: "subscription",
     },
   ],
@@ -139,13 +151,33 @@ export function findPlan(id: string | null | undefined): PaymentPlan | null {
 }
 
 /**
- * Was der Kunde über alle Raten hinweg zahlt. Immer aus dem Ratenbetrag
- * gerechnet, damit angezeigte Summe und tatsächliche Abbuchungen nicht
- * auseinanderlaufen können. Bei 3 Raten sind das 999,99 € statt 1.000 € —
- * siehe Kommentar am Plan.
+ * Restcents, die bei gleich hohen Raten nicht aufgehen — sie werden mit der
+ * ersten Rate eingezogen. Bei 3 × 333,33 ist das 1 Cent, bei 2 × 500,00 keiner.
+ */
+export function planAdjustmentCents(
+  plan: PaymentPlan,
+  offer: CheckoutOffer = CHECKOUT_OFFER,
+): number {
+  if (!plan.adjustmentEnv) return 0;
+  const target = Math.round(offer.price * 100);
+  const installments = Math.round(plan.installmentAmount * 100) * plan.installments;
+  return Math.max(0, target - installments);
+}
+
+/** Betrag der ERSTEN Rate — inklusive Rundungsausgleich. */
+export function planFirstAmount(plan: PaymentPlan): number {
+  return Math.round(plan.installmentAmount * 100 + planAdjustmentCents(plan)) / 100;
+}
+
+/**
+ * Was der Kunde über alle Raten hinweg zahlt. Aus den tatsächlichen
+ * Abbuchungen gerechnet — angezeigte Summe und Kontoauszug können damit nicht
+ * auseinanderlaufen. Mit Rundungsausgleich sind das exakt die 1.000 €.
  */
 export function planTotal(plan: PaymentPlan): number {
-  return Math.round(plan.installmentAmount * plan.installments * 100) / 100;
+  const cents = Math.round(plan.installmentAmount * 100) * plan.installments
+    + planAdjustmentCents(plan);
+  return Math.round(cents) / 100;
 }
 
 /** Preis je Session — Ankerpreis neben der Gesamtsumme. */

@@ -9,6 +9,7 @@ import {
   chargesVat,
   findPlan,
   makeOrderReference,
+  planAdjustmentCents,
   planTotal,
   type PaymentPlan,
 } from "@/lib/checkout";
@@ -159,6 +160,23 @@ async function createStripeCheckout(plan: PaymentPlan, reference: string): Promi
     );
   }
 
+  // Rundungsausgleich für Raten, die nicht glatt aufgehen. Fehlt die Env, geht
+  // die Kasse trotzdem auf — der Kunde zahlt dann die Restcents weniger, was
+  // die harmlosere Richtung ist. Sichtbar bleibt es trotzdem.
+  const expectedAdjustment = planAdjustmentCents(plan);
+  let adjustmentPriceId: string | null = null;
+  if (expectedAdjustment > 0) {
+    adjustmentPriceId = (plan.adjustmentEnv && process.env[plan.adjustmentEnv]) || null;
+    if (!adjustmentPriceId) {
+      console.warn(
+        `checkout: ${plan.adjustmentEnv} fehlt — ${plan.label} bucht ` +
+          `${expectedAdjustment} Cent weniger als ausgezeichnet.`,
+      );
+    } else {
+      await assertAdjustmentPrice(adjustmentPriceId, expectedAdjustment, plan);
+    }
+  }
+
   const origin = await currentOrigin();
 
   const isSubscription = plan.mode === "subscription";
@@ -180,6 +198,10 @@ async function createStripeCheckout(plan: PaymentPlan, reference: string): Promi
         isSubscription || !taxRate
           ? { price: priceId, quantity: 1 }
           : { price: priceId, quantity: 1, tax_rates: [taxRate] },
+        // Rundungsausgleich: eine einmalige Position im Abo-Modus landet bei
+        // Stripe auf der ERSTEN Rechnung. Damit zahlt der Kunde 333,34 + 333,33
+        // + 333,33 = exakt 1.000 €, statt einen Cent zu wenig.
+        ...(adjustmentPriceId ? [{ price: adjustmentPriceId, quantity: 1 }] : []),
       ],
       ...(isSubscription
         ? {
@@ -221,6 +243,43 @@ async function createStripeCheckout(plan: PaymentPlan, reference: string): Promi
 
   if (!session.url) throw new Error("Stripe lieferte keine Checkout-URL");
   return session.url;
+}
+
+/**
+ * Der Ausgleich ist ein Cent-Betrag, der still die Summe verschieben würde,
+ * wenn er in Stripe anders steht als hier gerechnet. Deshalb dieselbe
+ * Behandlung wie beim Hauptpreis: vorher prüfen, sonst geht die Kasse nicht auf.
+ */
+async function assertAdjustmentPrice(
+  priceId: string,
+  expectedCents: number,
+  plan: PaymentPlan,
+): Promise<void> {
+  if (verifiedPrices.has(priceId)) return;
+
+  const price = (await stripeGet(`/prices/${priceId}`)) as {
+    unit_amount?: number | null;
+    recurring?: { interval?: string } | null;
+    active?: boolean;
+  };
+
+  if (price.unit_amount !== expectedCents) {
+    throw new Error(
+      `${plan.adjustmentEnv} (${priceId}) steht auf ${price.unit_amount} Cent, ` +
+        `erwartet werden ${expectedCents} Cent Rundungsausgleich.`,
+    );
+  }
+  if (price.recurring) {
+    throw new Error(
+      `${plan.adjustmentEnv} (${priceId}) ist wiederkehrend — der Ausgleich darf ` +
+        `nur EINMAL anfallen, sonst zahlt der Kunde ihn jede Rate.`,
+    );
+  }
+  if (price.active === false) {
+    throw new Error(`${plan.adjustmentEnv} (${priceId}) ist archiviert`);
+  }
+
+  verifiedPrices.add(priceId);
 }
 
 // Einmal pro Prozess geprüfte Stripe-Objekte. Preis und Steuersatz ändern sich

@@ -6,6 +6,7 @@ import {
   CHECKOUT_OFFER,
   chargesVat,
   formatPrice,
+  planFirstAmount,
   planTotal,
   type PaymentPlan,
 } from "@/lib/checkout";
@@ -107,6 +108,12 @@ export function CheckoutStart({ plans }: { plans: PaymentPlan[] }) {
                     {p.installments > 1 && (
                       <span className="block text-xs text-[color:var(--color-muted)]">
                         {formatPrice(total)} gesamt
+                        {/* Geht die Summe nicht glatt auf, liegt der Restcent auf
+                            der ersten Rate. Das gehört sichtbar an die Kachel —
+                            sonst wundert sich der Kunde über den Kontoauszug. */}
+                        {planFirstAmount(p) !== p.installmentAmount && (
+                          <> · erste Rate {formatPrice(planFirstAmount(p))}</>
+                        )}
                       </span>
                     )}
                     <span className="mt-1 block text-xs leading-snug text-[color:var(--color-muted)]">
