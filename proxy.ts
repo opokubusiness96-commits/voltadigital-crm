@@ -14,6 +14,7 @@ const PUBLIC_PATHS = [
   "/reset-password",
   "/register",
   "/checkout",
+  "/angebote",
 ];
 
 // Eigene Kundendomain für die Verkaufsseite. Käufer sollen nicht die interne

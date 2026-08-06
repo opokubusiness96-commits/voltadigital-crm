@@ -48,6 +48,10 @@ export async function fulfillPaidOrder(reference: string, stripeSessionId: strin
   const orgId = order.org_id as string;
   const planId = order.plan_id as string;
   const plan = findPlan(planId);
+  // Der Name kommt aus der BESTELLUNG, nicht aus der Angebots-Konfiguration:
+  // seit /angebote laufen mehrere Produkte durch dieselbe Erfüllung, und bei
+  // einer Einzelstunde stünde sonst "5er-Paket" in Mail und CRM.
+  const offerName = String(order.offer_name || CHECKOUT_OFFER.name);
 
   // Kundendaten kommen von Stripe, nicht aus einem Formular vor der Zahlung:
   // die Bestellung wurde ohne sie angelegt. Erst hier stehen Name, E-Mail,
@@ -84,7 +88,7 @@ export async function fulfillPaidOrder(reference: string, stripeSessionId: strin
       lead_id: leadId,
       type: "note",
       content:
-        `Zahlung eingegangen — Bestellung ${reference}, ${CHECKOUT_OFFER.name}` +
+        `Zahlung eingegangen — Bestellung ${reference}, ${offerName}` +
         `${plan ? `, ${plan.label}` : ""} (${formatPrice(Number(order.amount_gross))} brutto)`,
       meta: {
         source: "checkout",
@@ -211,7 +215,7 @@ async function upsertWonLead(
       .insert({
         org_id: orgId,
         source: "manual",
-        source_manual: `Checkout ${CHECKOUT_OFFER.name}`,
+        source_manual: `Checkout ${order.offer_name || CHECKOUT_OFFER.name}`,
         stage: "won",
         name: fullName,
         first_name: order.first_name as string,
@@ -260,7 +264,7 @@ async function sendConfirmation(
         firstName: order.first_name,
         fullName,
         reference,
-        offerName: CHECKOUT_OFFER.name,
+        offerName: order.offer_name || CHECKOUT_OFFER.name,
         planLabel,
         installments,
         installmentAmount: formatPrice(gross / installments),
