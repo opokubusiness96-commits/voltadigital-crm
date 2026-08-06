@@ -17,25 +17,39 @@ const PUBLIC_PATHS = [
   "/angebote",
 ];
 
-// Eigene Kundendomain für die Verkaufsseite. Käufer sollen nicht die interne
-// CRM-Adresse sehen — auf diesen Hosts IST der Checkout die Startseite, und es
-// gibt bewusst nichts anderes: alles ausserhalb von /checkout landet wieder dort.
-const CHECKOUT_HOSTS = new Set([
-  "checkout1000.jeromederes.com",
-  "checkout1000.voltadigital.agency",
-]);
+/**
+ * Eigene Kundendomains für die Verkaufsseiten.
+ *
+ * Käufer sollen weder die interne CRM-Adresse noch die der Agentur sehen — das
+ * hier sind Jeromes Angebote, nicht die von Volta Digital. Auf jedem dieser
+ * Hosts IST die jeweilige Seite die Startseite, und es gibt bewusst nichts
+ * anderes: alles ausserhalb des erlaubten Pfads landet wieder dort.
+ */
+const CUSTOMER_HOSTS: Record<string, string> = {
+  "checkout1000.jeromederes.com": "/checkout",
+  "checkout1000.voltadigital.agency": "/checkout",
+  // Angebotsübersicht: Einzelstunde, 5er-Paket, 12 Wochen Intensiv.
+  "angebote.jeromederes.com": "/angebote",
+};
 
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   const host = (request.headers.get("host") ?? "").split(":")[0].toLowerCase();
-  if (CHECKOUT_HOSTS.has(host)) {
+  const customerPath = CUSTOMER_HOSTS[host];
+  if (customerPath) {
     if (pathname === "/") {
       const url = request.nextUrl.clone();
-      url.pathname = "/checkout";
+      url.pathname = customerPath;
       return NextResponse.rewrite(url);
     }
-    if (pathname.startsWith("/checkout") || pathname.startsWith("/_next/")) {
+    // Die Danke-Seite liegt unter /checkout und muss von JEDER Kundendomain
+    // erreichbar bleiben — dorthin schickt Stripe nach der Zahlung zurück.
+    if (
+      pathname.startsWith(customerPath) ||
+      pathname.startsWith("/checkout/danke") ||
+      pathname.startsWith("/_next/")
+    ) {
       return NextResponse.next();
     }
     const url = request.nextUrl.clone();
