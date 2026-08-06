@@ -8,13 +8,21 @@ import { formatPrice } from "./checkout";
  * einer Stelle steht, kann nicht an zwei Stellen auseinanderlaufen.
  *
  * WICHTIG — warum das 12-Wochen-Programm NICHT in Stunden ausgezeichnet ist:
- * Bei 249 € je Einzelstunde wären zwölf Stunden 2.988 €. Das Programm kostet
- * 4.999 €. Würde es als "12 Stunden" verkauft, rechnete das jeder Interessent
- * in Sekunden nach und die ganze Preisliste verlöre Glaubwürdigkeit. Verkauft
- * wird deshalb das PROGRAMM — Begleitung über zwölf Wochen, Community, Support
- * zwischen den Terminen. Das "bestes Preis-Leistungs-Verhältnis"-Etikett trägt
- * aus demselben Grund das 5er-Paket: dort stimmt die Rechnung (200 € statt
- * 249 € je Stunde).
+ * Bei 249 € je Einzelstunde wären zwölf Stunden 2.988 €, das Programm kostet
+ * 4.999 €. Als "12 Stunden" verkauft, rechnete das jeder Interessent in
+ * Sekunden nach und die ganze Preisliste verlöre Glaubwürdigkeit. Verkauft
+ * werden deshalb WOCHEN, nicht Stunden: zwölf Wochen durchgehende Begleitung,
+ * Community und WhatsApp-Support. Das sind Leistungen, die eine einzelne
+ * Stunde gar nicht enthält — damit trägt das "bestes Preis-Leistungs-
+ * Verhältnis" auf dieser Stufe und ist kein Stundenpreis-Versprechen.
+ *
+ * Die Staffel soll den Aufstieg lohnend machen, jede Stufe legt sichtbar nach:
+ *   Einzelstunde  249 €      die Stunde, sonst nichts
+ *   5er-Paket   1.000 €      200 € statt 249 € je Stunde → 245 € gespart
+ *   12 Wochen   4.999 €      alles davon + Community + WhatsApp + 12 Wochen
+ *                            durchgehend statt loser Termine
+ * Wer hier etwas ändert: die Ersparnis im Badge des 5er-Pakets ist gerechnet
+ * (5 × 249 − 1.000 = 245) und muss beim nächsten Preis mitgezogen werden.
  */
 
 export type OfferId = "einzelstunde" | "paket5" | "programm12";
@@ -64,7 +72,7 @@ export const OFFERS: Offer[] = [
       "Eigene Agenda — an dem, woran du gerade arbeitest",
       "Aufzeichnung und Notizen danach",
     ],
-    note: "Ab 5 Stunden zahlst du im Paket weniger.",
+    note: "Ab 5 Stunden zahlst du im Paket weniger — und bekommst mehr dazu.",
     mailNextSteps:
       "Jerome meldet sich innerhalb von 24 Stunden persönlich bei dir und ihr legt den Termin " +
       "für deine {n} fest. Bring mit, woran du gerade arbeitest — die Stunde gehört komplett dir.",
@@ -76,7 +84,7 @@ export const OFFERS: Offer[] = [
     unitPrice: 1000,
     priceEnv: "STRIPE_PRICE_CHECKOUT_ONCE",
     mode: "payment",
-    badge: "Bestes Preis-Leistungs-Verhältnis",
+    badge: "Spare 245 €",
     includes: [
       "5 × 60 Minuten 1:1 Session mit Jerome (per Zoom)",
       "Termine flexibel in deinem Tempo — z. B. wöchentlich",
@@ -84,7 +92,7 @@ export const OFFERS: Offer[] = [
       "Aufzeichnung und Notizen nach jeder Session",
       "Konkrete Umsetzungs-Schritte zwischen den Terminen",
     ],
-    note: "200 € pro Stunde statt 249 € — auch in 2 oder 3 Raten zahlbar.",
+    note: "200 € statt 249 € pro Stunde. In 2 oder 3 Raten zahlbar, ohne Aufschlag.",
     mailNextSteps:
       "Jerome meldet sich innerhalb von 24 Stunden persönlich bei dir. Ihr legt gemeinsam den " +
       "ersten Termin fest, die weiteren vier Sessions planst du flexibel in deinem Tempo dazu — " +
@@ -93,24 +101,24 @@ export const OFFERS: Offer[] = [
   {
     id: "programm12",
     name: "12 Wochen Intensiv",
-    tagline: "Das komplette Programm mit Community",
+    tagline: "12 Wochen Begleitung, Community und WhatsApp-Support",
     unitPrice: 4999,
     priceEnv: "STRIPE_PRICE_PROGRAM12",
     mode: "payment",
-    badge: "Komplettprogramm",
+    badge: "Bestes Preis-Leistungs-Verhältnis",
     highlight: true,
     includes: [
       "12 Wochen durchgehende Begleitung, wöchentliche 1:1-Sessions",
-      "Zugang zur Community — auch nach den zwölf Wochen",
-      "Support zwischen den Terminen, nicht nur im Call",
+      "WhatsApp-Support direkt mit Jerome — auch zwischen den Terminen",
+      "Zugang zur Community, der dir nach den zwölf Wochen bleibt",
       "Arbeitsmaterial und Aufzeichnungen zu jeder Session",
-      "Gemeinsamer Plan über die volle Strecke statt Einzelterminen",
+      "Gemeinsamer Plan über die volle Strecke statt loser Einzeltermine",
     ],
-    note: "Ratenzahlung auf Anfrage — schreib uns vor der Buchung.",
+    note: "Alles aus dem 5er-Paket plus Community und WhatsApp-Support — und Jerome bleibt zwölf Wochen an deiner Seite statt nur im Termin.",
     mailNextSteps:
       "Jerome meldet sich innerhalb von 24 Stunden persönlich bei dir. Ihr setzt den Startpunkt " +
-      "und den Plan über die zwölf Wochen auf. Deinen Community-Zugang bekommst du separat per " +
-      "E-Mail — er bleibt dir auch nach dem Programm erhalten.",
+      "und den Plan über die zwölf Wochen auf. Deinen Community-Zugang und den WhatsApp-Draht zu " +
+      "Jerome bekommst du separat per E-Mail — die Community bleibt dir auch nach dem Programm.",
   },
 ];
 
