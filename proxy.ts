@@ -35,11 +35,10 @@ const PUBLIC_PATHS = [
 const SALES_PATHS = ["/checkout", "/angebote"];
 
 const CUSTOMER_HOSTS: Record<string, { home: string; allow: string[] }> = {
-  // Startseite ist die ÜBERSICHT, nicht mehr nur das 5er-Paket: der Name der
-  // Domain stammt aus der Zeit, als es nur ein Angebot gab. Das einzelne
-  // 5er-Paket bleibt unter /checkout erreichbar (Links aus alten Mails).
-  "checkout1000.jeromederes.com": { home: "/angebote", allow: SALES_PATHS },
-  "checkout1000.voltadigital.agency": { home: "/angebote", allow: SALES_PATHS },
+  // Startseite bleibt das 5er-Paket — dieser Link ist im Umlauf und wird
+  // benutzt. Die Angebotsübersicht liegt daneben unter /angebote.
+  "checkout1000.jeromederes.com": { home: "/checkout", allow: SALES_PATHS },
+  "checkout1000.voltadigital.agency": { home: "/checkout", allow: SALES_PATHS },
   "angebote.jeromederes.com": { home: "/angebote", allow: SALES_PATHS },
 };
 
