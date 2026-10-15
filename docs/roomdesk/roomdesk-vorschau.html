@@ -1,0 +1,231 @@
+<title>RoomDesk Vorstellungsseite</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@600;700&family=Manrope:wght@400;500;600;700&display=swap">
+<style>
+  /* Layout: white Volta site, full-width bands, 5xl content column, form split 1:1.4 on desktop */
+  :root {
+    --bg: #FFFFFF;
+    --band: #FBFAF7;
+    --fg: #141311;
+    --fg-soft: #4A463F;
+    --muted: #8A8275;
+    --line: #D9D3C5;
+    --line-soft: #EDE9E0;
+    --gold: #B8962E;
+    --green: #1E7A4A;
+    --red: #C8322B;
+    --font-display: "Cormorant Garamond", Georgia, "Times New Roman", serif;
+    --font-body: "Manrope", system-ui, -apple-system, "Segoe UI", sans-serif;
+    color-scheme: light;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: 16px; line-height: 1.55; -webkit-font-smoothing: antialiased; }
+  .wrap { max-width: 1024px; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+  a { color: inherit; }
+  h1, h2, h3 { margin: 0; text-wrap: balance; letter-spacing: -0.01em; }
+  p { margin: 0; }
+
+  /* Nav */
+  .nav { border-bottom: 1px solid var(--line-soft); position: sticky; top: env(safe-area-inset-top, 0px); background: rgba(255,255,255,.92); backdrop-filter: blur(8px); z-index: 5; }
+  .nav .wrap { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding-block: 14px; }
+  .brand { font-weight: 700; letter-spacing: .18em; font-size: 12px; text-transform: uppercase; display: flex; align-items: center; gap: 10px; }
+  .brand i { width: 18px; height: 18px; border-radius: 50%; border: 2px solid var(--gold); border-top-color: transparent; display: inline-block; }
+  .tabs { display: flex; gap: 22px; font-size: 13px; font-weight: 600; list-style: none; margin: 0; padding: 0; overflow-x: auto; }
+  .tabs a { text-decoration: none; color: var(--fg-soft); padding-block: 4px; border-bottom: 2px solid transparent; white-space: nowrap; }
+  .tabs a.on { color: var(--fg); border-color: var(--gold); }
+  .nav-cta { display: none; font-size: 13px; font-weight: 700; text-decoration: none; background: var(--fg); color: #fff; padding: 9px 16px; border-radius: 6px; }
+  @media (min-width: 760px) { .nav-cta { display: inline-block; } }
+
+  /* Hero */
+  .hero { padding-block: 64px 48px; }
+  .logo { display: flex; align-items: baseline; gap: 12px; }
+  .logo b { font-family: var(--font-display); font-weight: 700; font-size: 34px; color: var(--gold); letter-spacing: .01em; }
+  .logo small { font-size: 11px; font-weight: 700; letter-spacing: .28em; text-transform: uppercase; color: var(--muted); }
+  .ghana { display: flex; gap: 6px; margin-top: 12px; }
+  .ghana span { height: 4px; width: 32px; border-radius: 999px; }
+  .ghana span:nth-child(1), .ghana span:nth-child(4) { background: var(--gold); }
+  .ghana span:nth-child(2) { background: var(--green); }
+  .ghana span:nth-child(3) { background: var(--red); }
+  h1 { margin-top: 32px; font-size: clamp(32px, 5.5vw, 52px); line-height: 1.08; font-weight: 700; max-width: 16ch; }
+  .lede { margin-top: 20px; max-width: 60ch; font-size: 18px; color: var(--fg-soft); }
+  .ctas { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 32px; }
+  .btn { display: inline-flex; align-items: center; justify-content: center; border-radius: 6px; padding: 12px 24px; font-size: 14px; font-weight: 700; text-decoration: none; border: 1px solid transparent; cursor: pointer; font-family: inherit; transition: background .15s, border-color .15s; }
+  .btn-dark { background: var(--fg); color: #fff; }
+  .btn-dark:hover { background: #2A2622; }
+  .btn-line { background: #fff; color: var(--fg); border-color: var(--line); }
+  .btn-line:hover { border-color: var(--gold); }
+  .btn:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+
+  /* Bands */
+  .band { background: var(--band); border-top: 1px solid var(--line-soft); border-bottom: 1px solid var(--line-soft); }
+  .sec { padding-block: 56px; }
+  @media (min-width: 760px) { .sec { padding-block: 80px; } .hero { padding-block: 96px 64px; } }
+  .eyebrow { font-size: 12px; font-weight: 700; letter-spacing: .2em; text-transform: uppercase; color: var(--gold); }
+  h2 { margin-top: 12px; font-size: clamp(24px, 3.2vw, 32px); font-weight: 700; max-width: 26ch; }
+  .features { list-style: none; margin: 40px 0 0; padding: 0; display: grid; gap: 32px 40px; }
+  @media (min-width: 760px) { .features { grid-template-columns: 1fr 1fr; } }
+  .features li { border-top: 1px solid var(--line); padding-top: 16px; min-width: 0; }
+  .features h3 { font-size: 16px; font-weight: 700; }
+  .features p { margin-top: 6px; font-size: 14px; color: var(--fg-soft); }
+
+  .two { display: grid; gap: 40px; }
+  @media (min-width: 760px) { .two { grid-template-columns: 1fr 1fr; } }
+  .big { margin-top: 12px; font-size: clamp(24px, 3vw, 30px); font-weight: 700; line-height: 1.2; }
+  .two p.t { margin-top: 12px; font-size: 14px; color: var(--fg-soft); max-width: 48ch; }
+
+  /* Form */
+  .split { display: grid; gap: 40px; }
+  @media (min-width: 860px) { .split { grid-template-columns: 1fr 1.4fr; } }
+  .split > div { min-width: 0; }
+  .split .t { margin-top: 12px; font-size: 14px; color: var(--fg-soft); }
+  .split .t + .t { margin-top: 24px; }
+  .split .t a { font-weight: 700; text-decoration: underline; text-decoration-color: var(--gold); text-underline-offset: 4px; }
+  form, .thanks { background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 24px; }
+  @media (min-width: 760px) { form, .thanks { padding: 32px; } }
+  .grid { display: grid; gap: 20px; }
+  @media (min-width: 560px) { .grid { grid-template-columns: 1fr 1fr; } .span { grid-column: 1 / -1; } }
+  label { display: block; margin-bottom: 6px; font-size: 12px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--fg-soft); }
+  input, select, textarea { width: 100%; border: 1px solid var(--line); border-radius: 6px; background: #fff; padding: 10px 14px; font: inherit; font-size: 14px; color: var(--fg); }
+  input::placeholder, textarea::placeholder { color: #A39B8D; }
+  input:focus, select:focus, textarea:focus { border-color: var(--gold); box-shadow: 0 0 0 3px rgba(184,150,46,.22); outline: none; }
+  textarea { resize: vertical; min-height: 104px; }
+  .submit { margin-top: 24px; width: 100%; }
+  .fine { margin-top: 12px; font-size: 12px; color: var(--muted); }
+  .err { margin-top: 16px; font-size: 14px; color: #8F1F1A; background: rgba(200,50,43,.06); border: 1px solid rgba(200,50,43,.4); border-radius: 6px; padding: 8px 12px; }
+  .thanks b { font-family: var(--font-display); font-size: 28px; color: var(--gold); display: block; }
+  .thanks .h { margin-top: 8px; font-weight: 700; }
+  .thanks .t { margin-top: 8px; font-size: 14px; color: var(--fg-soft); }
+
+  /* Footer line */
+  .foot { padding-block: 32px; font-size: 12px; color: var(--muted); display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; }
+  .foot a { text-underline-offset: 4px; }
+  .foot a:hover { color: var(--fg); }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<header class="nav">
+  <div class="wrap">
+    <a class="brand" href="#" aria-label="Volta Digital"><i></i> Volta Digital</a>
+    <ul class="tabs">
+      <li><a href="#">Start</a></li>
+      <li><a href="#">Leistungen</a></li>
+      <li><a href="#" class="on" aria-current="page">RoomDesk</a></li>
+      <li><a href="#">Kontakt</a></li>
+    </ul>
+    <a class="nav-cta" href="#">Strategiegespräch</a>
+  </div>
+</header>
+
+<main>
+  <section class="wrap hero">
+    <div class="logo"><b>RoomDesk</b><small>Africa</small></div>
+    <div class="ghana" aria-hidden="true"><span></span><span></span><span></span><span></span></div>
+    <h1>Hotelbuchung, die Mobile Money versteht.</h1>
+    <p class="lede">Buchungssoftware aus Deutschland für kleine und mittlere Hotels in Ghana und Togo. Belegungsplan, Zimmerkonto und Online-Zahlung per MoMo. Läuft bereits im Pilothotel in Accra.</p>
+    <div class="ctas">
+      <a class="btn btn-dark" href="#anfrage">Pilotplatz sichern</a>
+      <a class="btn btn-line" href="roomdesk-hotel-questionnaire.pdf" target="_blank" rel="noopener">Fragebogen als PDF herunterladen</a>
+    </div>
+  </section>
+
+  <section class="band">
+    <div class="wrap sec">
+      <p class="eyebrow">Was RoomDesk kann</p>
+      <h2>Alles, was eine Rezeption in Accra oder Lomé täglich braucht.</h2>
+      <ul class="features">
+        <li><h3>Belegungsplan als Tabelle</h3><p>Zimmer mal Tage auf einen Blick. Freie, belegte und reservierte Zimmer sind sofort erkennbar, Doppelbuchungen werden verhindert.</p></li>
+        <li><h3>Zimmerkonto mit integrierter Kasse</h3><p>Snacks, Getränke und Zusatzleistungen direkt aufs Zimmer buchen. Beim Check-out steht die komplette Rechnung bereit.</p></li>
+        <li><h3>Eigene Buchungsseite pro Hotel</h3><p>Gäste wählen Zimmer und Frühstücksoption online. Jedes Hotel bekommt seine eigene Seite und eigene Zugänge.</p></li>
+        <li><h3>Online-Zahlung per Mobile Money</h3><p>Gäste zahlen per MoMo oder Karte über Paystack. Das Geld landet direkt beim Hotel.</p></li>
+        <li><h3>Automatische Buchungsbestätigung</h3><p>Nach jeder Buchung geht eine Bestätigung per E-Mail an den Gast. Keine manuelle Nacharbeit an der Rezeption.</p></li>
+        <li><h3>Monatliches Abo ohne Einrichtungsgebühr</h3><p>RoomDesk kostet weniger als eine Zimmernacht pro Monat. Keine Hardware, kein Vertrag mit langer Laufzeit.</p></li>
+      </ul>
+    </div>
+  </section>
+
+  <section class="wrap sec">
+    <div class="two">
+      <div>
+        <p class="eyebrow">Preis</p>
+        <p class="big">Weniger als eine Zimmernacht pro Monat.</p>
+        <p class="t">Monatliches Abo, jederzeit kündbar. Der Preis richtet sich nach der Zimmerzahl, kleinere Häuser zahlen weniger. Einrichtung und Schulung der Rezeption sind enthalten.</p>
+      </div>
+      <div>
+        <p class="eyebrow">Pilotprogramm</p>
+        <p class="big">Die ersten Hotels starten vergünstigt.</p>
+        <p class="t">RoomDesk läuft bereits im Pilothotel in Accra. Für die nächsten Häuser in Ghana und Togo gibt es Sonderkonditionen, dafür wünschen wir uns dein Feedback und eine Referenz.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="band" id="anfrage">
+    <div class="wrap sec">
+      <div class="split">
+        <div>
+          <p class="eyebrow">Hotel anfragen</p>
+          <h2>Sichere dir einen Pilotplatz für dein Hotel.</h2>
+          <p class="t">Wir melden uns innerhalb von 24 Stunden mit einer Demo, 15 Minuten per WhatsApp oder Video-Call.</p>
+          <p class="t">Lieber auf Papier? Lade den <a href="roomdesk-hotel-questionnaire.pdf" target="_blank" rel="noopener">Fragebogen als PDF</a> herunter, fülle ihn aus und schicke ihn per E-Mail an hallo@voltadigital.agency oder per WhatsApp zurück.</p>
+        </div>
+        <div>
+          <form id="rd-form" novalidate>
+            <div class="grid">
+              <div class="span"><label for="rd-hotel">Name des Hotels *</label><input id="rd-hotel" name="hotel" required placeholder="z. B. Lakeside Guest House"></div>
+              <div><label for="rd-location">Land und Stadt *</label><input id="rd-location" name="location" required placeholder="Ghana, Accra"></div>
+              <div><label for="rd-rooms">Anzahl Zimmer *</label><input id="rd-rooms" name="rooms" type="number" min="1" max="999" required placeholder="12"></div>
+              <div class="span"><label for="rd-booking">Wie läuft die Buchung aktuell?</label>
+                <select id="rd-booking" name="booking_process">
+                  <option value="">Bitte wählen</option>
+                  <option>Telefon / WhatsApp</option><option>Walk-ins</option><option>Booking.com</option><option>Eigene Website</option><option>Sonstiges</option>
+                </select></div>
+              <div class="span"><label for="rd-contact">Ansprechpartner *</label><input id="rd-contact" name="contact_name" required placeholder="Name und Rolle, z. B. Ama Mensah, Managerin"></div>
+              <div><label for="rd-email">E-Mail *</label><input id="rd-email" name="email" type="email" required placeholder="name@hotel.com"></div>
+              <div><label for="rd-whatsapp">WhatsApp-Nummer *</label><input id="rd-whatsapp" name="whatsapp" type="tel" required placeholder="+233 24 000 0000"></div>
+              <div class="span"><label for="rd-message">Nachricht (optional)</label><textarea id="rd-message" name="message" placeholder="Was ist dir bei der Buchung heute am wichtigsten?"></textarea></div>
+            </div>
+            <p class="err" id="rd-err" hidden role="alert"></p>
+            <button class="btn btn-dark submit" type="submit" id="rd-submit">Hotel anfragen</button>
+            <p class="fine">Mit dem Absenden stimmst du zu, dass wir dich per E-Mail oder WhatsApp zu RoomDesk kontaktieren. In dieser Vorschau wird nichts versendet.</p>
+          </form>
+          <div class="thanks" id="rd-thanks" hidden role="status">
+            <b>Danke!</b>
+            <p class="h">Wir melden uns innerhalb von 24 Stunden mit einer Demo.</p>
+            <p class="t">Halte dein WhatsApp bereit. Wenn du es eilig hast, schreib uns direkt an hallo@voltadigital.agency.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div class="wrap foot">
+    <span>© Volta Digital · Impressum · Datenschutz</span>
+    <span>Du nutzt RoomDesk bereits? <a href="https://book.voltadigital.agency/login" target="_blank" rel="noopener">Kunden-Login</a></span>
+  </div>
+</main>
+
+<script>
+  (function () {
+    var form = document.getElementById('rd-form');
+    var err = document.getElementById('rd-err');
+    var thanks = document.getElementById('rd-thanks');
+    form.addEventListener('submit', function (e) {
+      e.preventDefault();
+      var missing = [];
+      form.querySelectorAll('[required]').forEach(function (el) {
+        if (!el.value.trim()) missing.push(el);
+      });
+      var email = document.getElementById('rd-email');
+      if (email.value && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.value)) missing.push(email);
+      if (missing.length) {
+        err.textContent = 'Bitte alle Pflichtfelder (*) ausfüllen.';
+        err.hidden = false;
+        missing[0].focus();
+        return;
+      }
+      err.hidden = true;
+      form.hidden = true;
+      thanks.hidden = false;
+      thanks.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    });
+  })();
+</script>
